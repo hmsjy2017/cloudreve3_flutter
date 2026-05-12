@@ -1,0 +1,6 @@
+rust_input: crate::api
+rust_root: sync-core/
+dart_output: D:/flutter_projects/cloudreve4_flutter/lib/src/rust/
+c_output: D:/flutter_projects/cloudreve4_flutter/native/target/frb_c_output/
+dart_entrypoint_class_name: RustSyncApi
+dart_enums_style: true

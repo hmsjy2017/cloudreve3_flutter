@@ -1,0 +1,17 @@
+[package]
+name = "sync-linux"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["lib"]
+
+[dependencies]
+# 不依赖 sync-core，避免循环依赖
+notify = { version = "7", features = ["macos_fsevent"] }
+walkdir = "2"
+thiserror = { workspace = true }
+tracing = "0.1"
+anyhow = { workspace = true }
+tokio = { workspace = true }
+async-trait = "0.1"

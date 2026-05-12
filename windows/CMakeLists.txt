@@ -107,3 +107,36 @@ install(DIRECTORY "${PROJECT_BUILD_DIR}/${FLUTTER_ASSET_DIR_NAME}"
 install(FILES "${AOT_LIBRARY}" DESTINATION "${INSTALL_BUNDLE_DATA_DIR}"
   CONFIGURATIONS Profile;Release
   COMPONENT Runtime)
+
+# === Rust Sync Engine ===
+find_program(CARGO_CMD cargo PATHS "$ENV{USERPROFILE}\\.cargo\\bin" NO_DEFAULT_PATH)
+if(NOT CARGO_CMD)
+    message(WARNING "cargo not found, skipping Rust sync engine build")
+else()
+    set(SYNC_CORE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../native")
+
+    if(CMAKE_BUILD_TYPE STREQUAL "Release" OR CMAKE_BUILD_TYPE STREQUAL "Profile")
+        set(CARGO_PROFILE "--release")
+        set(RUST_BUILD_DIR "release")
+    else()
+        set(CARGO_PROFILE "")
+        set(RUST_BUILD_DIR "debug")
+    endif()
+
+    set(RUST_TARGET_DIR "${CMAKE_BINARY_DIR}/rust_target")
+
+    add_custom_command(
+        OUTPUT "${RUST_TARGET_DIR}/${RUST_BUILD_DIR}/sync_core.dll"
+        COMMAND ${CARGO_CMD} build ${CARGO_PROFILE}
+            --manifest-path "${SYNC_CORE_DIR}/Cargo.toml"
+            --target-dir "${RUST_TARGET_DIR}"
+        COMMENT "Building Rust sync engine..."
+    )
+
+    add_custom_target(sync_core_build DEPENDS "${RUST_TARGET_DIR}/${RUST_BUILD_DIR}/sync_core.dll")
+    add_dependencies(${BINARY_NAME} sync_core_build)
+
+    install(FILES "${RUST_TARGET_DIR}/${RUST_BUILD_DIR}/sync_core.dll"
+        DESTINATION "${INSTALL_BUNDLE_LIB_DIR}"
+        COMPONENT Runtime)
+endif()
