@@ -1,3 +1,5 @@
+import '../../src/rust/api/ffi_types.dart' as ffi;
+
 class SyncStatusModel {
   final String state;
   final int syncedFiles;
@@ -29,4 +31,18 @@ class SyncStatusModel {
   bool get isError => state == 'error';
   bool get isStopped => state == 'stopped';
   bool get isActive => isInitializing || isInitialSync || isContinuous;
+
+  static SyncStatusModel fromFfi(ffi.SyncStatusFfi f) {
+    return SyncStatusModel(
+      state: f.state,
+      syncedFiles: f.syncedFiles.toInt(),
+      totalFiles: f.totalFiles.toInt(),
+      uploadingCount: f.uploadingCount,
+      downloadingCount: f.downloadingCount,
+      conflictCount: f.conflictCount,
+      errorCount: f.errorCount,
+      lastSyncTime: f.lastSyncTime,
+      errorMessage: f.errorMessage,
+    );
+  }
 }

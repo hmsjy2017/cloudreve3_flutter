@@ -1,3 +1,5 @@
+import '../../src/rust/api/ffi_types.dart' as ffi;
+
 sealed class SyncEventModel {}
 
 class SyncStateChanged extends SyncEventModel {
@@ -66,4 +68,16 @@ class SyncSummaryModel {
     this.deletedRemote = 0,
     this.durationMs = 0,
   });
+
+  static SyncSummaryModel fromFfi(ffi.SyncSummaryFfi f) {
+    return SyncSummaryModel(
+      uploaded: f.uploaded,
+      downloaded: f.downloaded,
+      conflicts: f.conflicts,
+      skipped: f.skipped,
+      deletedLocal: f.deletedLocal,
+      deletedRemote: f.deletedRemote,
+      durationMs: f.durationMs.toInt(),
+    );
+  }
 }

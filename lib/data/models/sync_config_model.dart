@@ -1,3 +1,5 @@
+import '../../src/rust/api/ffi_types.dart' as ffi;
+
 class SyncConfigModel {
   final String baseUrl;
   final String accessToken;
@@ -47,6 +49,36 @@ class SyncConfigModel {
       bandwidthLimitKbps: bandwidthLimitKbps ?? this.bandwidthLimitKbps,
       excludedPaths: excludedPaths ?? this.excludedPaths,
       selectiveDirs: selectiveDirs ?? this.selectiveDirs,
+    );
+  }
+
+  ffi.SyncConfigFfi toFfi() {
+    return ffi.SyncConfigFfi(
+      baseUrl: baseUrl,
+      accessToken: accessToken,
+      localRoot: localRoot,
+      remoteRoot: remoteRoot,
+      syncMode: syncMode,
+      conflictStrategy: conflictStrategy,
+      maxConcurrentTransfers: maxConcurrentTransfers,
+      bandwidthLimitKbps: BigInt.from(bandwidthLimitKbps),
+      excludedPaths: excludedPaths,
+      selectiveDirs: selectiveDirs,
+    );
+  }
+
+  static SyncConfigModel fromFfi(ffi.SyncConfigFfi ffi) {
+    return SyncConfigModel(
+      baseUrl: ffi.baseUrl,
+      accessToken: ffi.accessToken,
+      localRoot: ffi.localRoot,
+      remoteRoot: ffi.remoteRoot,
+      syncMode: ffi.syncMode,
+      conflictStrategy: ffi.conflictStrategy,
+      maxConcurrentTransfers: ffi.maxConcurrentTransfers,
+      bandwidthLimitKbps: ffi.bandwidthLimitKbps.toInt(),
+      excludedPaths: ffi.excludedPaths,
+      selectiveDirs: ffi.selectiveDirs,
     );
   }
 }

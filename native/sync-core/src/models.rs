@@ -67,6 +67,8 @@ pub struct RemoteFileEntry {
     pub hash: Option<String>,
     pub is_dir: bool,
     pub file_id: Option<String>,
+    pub path: String,
+    pub created_at_ms: i64,
 }
 
 // ===== 文件映射 =====
@@ -270,7 +272,47 @@ pub struct ListFilesResponse {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Pagination {
     pub next_page_token: Option<String>,
+    pub is_cursor: bool,
     pub total: Option<u64>,
+}
+
+// ===== 同步计划 =====
+
+#[derive(Debug, Clone, Default)]
+pub struct SyncPlan {
+    pub uploads: Vec<SyncAction>,
+    pub downloads: Vec<SyncAction>,
+    pub delete_local: Vec<SyncAction>,
+    pub delete_remote: Vec<SyncAction>,
+    pub conflicts: Vec<SyncConflict>,
+    pub mkdirs_local: Vec<String>,
+    pub mkdirs_remote: Vec<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct SyncAction {
+    pub relative_path: String,
+    pub local_entry: Option<LocalFileEntry>,
+    pub remote_entry: Option<RemoteFileEntry>,
+    pub db_mapping: Option<FileMapping>,
+}
+
+#[derive(Debug, Clone)]
+pub struct SyncConflict {
+    pub relative_path: String,
+    pub conflict_type: ConflictType,
+    pub local_entry: Option<LocalFileEntry>,
+    pub remote_entry: Option<RemoteFileEntry>,
+    pub db_mapping: Option<FileMapping>,
+}
+
+impl SyncPlan {
+    pub fn total_actions(&self) -> u64 {
+        self.uploads.len() as u64
+            + self.downloads.len() as u64
+            + self.delete_local.len() as u64
+            + self.delete_remote.len() as u64
+    }
 }
 
 // ===== 云端相册检查结果 =====

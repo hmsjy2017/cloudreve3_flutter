@@ -4,7 +4,6 @@ import 'package:logger/logger.dart';
 
 import '../../../data/models/sync_config_model.dart';
 import '../../../data/models/sync_event_model.dart';
-import '../../../data/models/sync_status_model.dart';
 import '../../../services/sync_service.dart';
 
 enum SyncState {

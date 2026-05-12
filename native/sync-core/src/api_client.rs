@@ -39,6 +39,23 @@ impl ApiClient {
         self.access_token.read().await.clone()
     }
 
+    /// 检查 API 响应状态，提取 data 或返回错误
+    async fn check_response(&self, resp: reqwest::Response) -> Result<serde_json::Value> {
+        if resp.status() == reqwest::StatusCode::UNAUTHORIZED {
+            return Err(SyncError::Auth("Token 过期".to_string()));
+        }
+        if !resp.status().is_success() {
+            return Err(SyncError::Network(format!("HTTP {}", resp.status())));
+        }
+        let api_resp: ApiResponse<serde_json::Value> = resp.json().await?;
+        if api_resp.code != 0 {
+            return Err(SyncError::Network(
+                api_resp.msg.unwrap_or_else(|| "未知错误".to_string()),
+            ));
+        }
+        Ok(api_resp.data.unwrap_or_default())
+    }
+
     // ===== 文件列表 =====
 
     pub async fn list_all_files(&self, uri: &str) -> Result<Vec<RemoteFileEntry>> {
@@ -80,62 +97,65 @@ impl ApiClient {
         let mut req = self.client
             .get(format!("{}/file", self.base_url))
             .bearer_auth(&token)
-            .query(&[("uri", uri), ("page", &page.to_string()), ("page_size", &page_size.to_string())]);
+            .query(&[
+                ("uri", uri),
+                ("page", &page.to_string()),
+                ("page_size", &page_size.to_string()),
+            ]);
 
         if let Some(npt) = next_page_token {
             req = req.query(&[("next_page_token", npt)]);
         }
 
         let resp = req.send().await?;
+        let data = self.check_response(resp).await?;
 
-        if resp.status() == reqwest::StatusCode::UNAUTHORIZED {
-            return Err(SyncError::Auth("Token 过期".to_string()));
-        }
-
-        let api_resp: ApiResponse<serde_json::Value> = resp.json().await?;
-        if api_resp.code != 0 {
-            return Err(SyncError::Network(
-                api_resp.msg.unwrap_or_else(|| "未知错误".to_string()),
-            ));
-        }
-
-        let data = api_resp.data.unwrap_or_default();
+        // 解析文件列表: data.objects 数组
         let files: Vec<RemoteFileEntry> = if let Some(objects) = data.get("objects").and_then(|o| o.as_array()) {
             objects.iter().filter_map(|obj| {
                 let name = obj.get("name")?.as_str()?.to_string();
-                let uri = obj.get("uri")?.as_str()?.to_string();
+                let uri = obj.get("uri").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                let path = obj.get("path")?.as_str().unwrap_or("").to_string();
                 let size = obj.get("size").and_then(|s| s.as_u64()).unwrap_or(0);
-                let is_dir = obj.get("type").and_then(|t| t.as_u64()).unwrap_or(0) == 1;
-                let hash = obj.get("hash").and_then(|h| h.as_str()).map(String::from);
-                let file_id = obj.get("id").and_then(|i| i.as_str()).map(String::from);
+                let file_type = obj.get("type").and_then(|t| t.as_u64()).unwrap_or(0);
+                let is_dir = file_type == 1;
+                let file_id = obj.get("id")?.as_str()?.to_string();
+                let created_at = obj.get("created_at").and_then(|t| t.as_str()).unwrap_or("");
+                let updated_at = obj.get("updated_at").and_then(|t| t.as_str()).unwrap_or("");
 
                 Some(RemoteFileEntry {
                     uri,
                     name,
                     size,
-                    mtime_ms: 0,
-                    hash,
+                    mtime_ms: parse_timestamp(updated_at),
+                    hash: None,
                     is_dir,
-                    file_id,
+                    file_id: Some(file_id),
+                    path,
+                    created_at_ms: parse_timestamp(created_at),
                 })
             }).collect()
         } else {
             Vec::new()
         };
 
-        let next_token = data.get("pagination")
-            .and_then(|p| p.get("next_page_token"))
+        // 解析分页信息
+        let pagination = data.get("pagination").cloned().unwrap_or_default();
+        let next_token = pagination.get("next_page_token")
             .and_then(|t| t.as_str())
             .map(String::from);
-
-        let total = data.get("pagination")
-            .and_then(|p| p.get("total"))
-            .and_then(|t| t.as_u64());
+        let is_cursor = pagination.get("is_cursor")
+            .and_then(|c| c.as_bool())
+            .unwrap_or(false);
+        let total = pagination.get("total_items")
+            .and_then(|t| t.as_u64())
+            .or_else(|| pagination.get("total").and_then(|t| t.as_u64()));
 
         Ok(ListFilesResponse {
             files,
             pagination: Pagination {
                 next_page_token: next_token,
+                is_cursor,
                 total,
             },
         })
@@ -155,18 +175,8 @@ impl ApiClient {
             .send()
             .await?;
 
-        if resp.status() == reqwest::StatusCode::UNAUTHORIZED {
-            return Err(SyncError::Auth("Token 过期".to_string()));
-        }
+        let data = self.check_response(resp).await?;
 
-        let api_resp: ApiResponse<serde_json::Value> = resp.json().await?;
-        if api_resp.code != 0 {
-            return Err(SyncError::Network(
-                api_resp.msg.unwrap_or_else(|| "创建上传会话失败".to_string()),
-            ));
-        }
-
-        let data = api_resp.data.unwrap_or_default();
         let session_id = data.get("session_id")
             .and_then(|s| s.as_str())
             .unwrap_or("")
@@ -223,25 +233,17 @@ impl ApiClient {
             .send()
             .await?;
 
-        if resp.status() == reqwest::StatusCode::UNAUTHORIZED {
-            return Err(SyncError::Auth("Token 过期".to_string()));
-        }
+        let data = self.check_response(resp).await?;
 
-        let api_resp: ApiResponse<serde_json::Value> = resp.json().await?;
-        if api_resp.code != 0 {
-            return Err(SyncError::Network(
-                api_resp.msg.unwrap_or_else(|| "获取下载 URL 失败".to_string()),
-            ));
-        }
-
-        let data = api_resp.data.unwrap_or_default();
-        let urls = if let Some(arr) = data.as_array() {
-            arr.iter()
-                .filter_map(|item| item.get("url")?.as_str().map(String::from))
-                .collect()
-        } else {
-            Vec::new()
-        };
+        // data.urls 数组
+        let urls = data.get("urls")
+            .and_then(|u| u.as_array())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|item| item.get("url")?.as_str().map(String::from))
+                    .collect()
+            })
+            .unwrap_or_default();
 
         Ok(urls)
     }
@@ -259,40 +261,33 @@ impl ApiClient {
         Ok(resp)
     }
 
-    // ===== 目录操作 =====
+    // ===== 创建文件/目录 =====
 
     pub async fn create_directory(&self, parent_uri: &str, name: &str) -> Result<RemoteFileEntry> {
         let token = self.token().await;
+        let uri = format!("{}/{}", parent_uri, name);
         let resp = self.client
-            .put(format!("{}/file", self.base_url))
+            .post(format!("{}/file/create", self.base_url))
             .bearer_auth(&token)
             .json(&serde_json::json!({
-                "uri": parent_uri,
-                "name": name,
-                "type": 1,
+                "uri": uri,
+                "type": "folder",
             }))
             .send()
             .await?;
 
-        if resp.status() == reqwest::StatusCode::UNAUTHORIZED {
-            return Err(SyncError::Auth("Token 过期".to_string()));
-        }
-
-        let api_resp: ApiResponse<serde_json::Value> = resp.json().await?;
-        if api_resp.code != 0 {
-            return Err(SyncError::Network(
-                api_resp.msg.unwrap_or_else(|| "创建目录失败".to_string()),
-            ));
-        }
+        let _data = self.check_response(resp).await?;
 
         Ok(RemoteFileEntry {
-            uri: format!("{}/{}", parent_uri, name),
+            uri,
             name: name.to_string(),
             size: 0,
             mtime_ms: 0,
             hash: None,
             is_dir: true,
             file_id: None,
+            path: String::new(),
+            created_at_ms: 0,
         })
     }
 
@@ -309,28 +304,87 @@ impl ApiClient {
             .send()
             .await?;
 
-        if resp.status() == reqwest::StatusCode::UNAUTHORIZED {
-            return Err(SyncError::Auth("Token 过期".to_string()));
-        }
-
+        self.check_response(resp).await?;
         Ok(())
     }
 
-    // ===== SSE 事件流 (Phase 3 将实现) =====
+    // ===== 移动 =====
 
-    pub async fn connect_sse(&self, _client_id: &str) -> Result<SseEventStream> {
-        // SSE 连接将在 Phase 3 完整实现
-        // 目前返回一个空流
-        Ok(SseEventStream)
+    pub async fn move_files(&self, src_uris: &[&str], dst_uri: &str, copy: bool) -> Result<()> {
+        let token = self.token().await;
+        let resp = self.client
+            .post(format!("{}/file/move", self.base_url))
+            .bearer_auth(&token)
+            .json(&serde_json::json!({
+                "uris": src_uris,
+                "dst": dst_uri,
+                "copy": copy,
+            }))
+            .send()
+            .await?;
+
+        self.check_response(resp).await?;
+        Ok(())
+    }
+
+    // ===== 重命名 =====
+
+    pub async fn rename_file(&self, uri: &str, new_name: &str) -> Result<()> {
+        let token = self.token().await;
+        let resp = self.client
+            .post(format!("{}/file/rename", self.base_url))
+            .bearer_auth(&token)
+            .json(&serde_json::json!({
+                "uri": uri,
+                "new_name": new_name,
+            }))
+            .send()
+            .await?;
+
+        self.check_response(resp).await?;
+        Ok(())
+    }
+
+    // ===== 获取文件信息 =====
+
+    pub async fn get_file_info(&self, uri: &str) -> Result<RemoteFileEntry> {
+        let token = self.token().await;
+        let resp = self.client
+            .get(format!("{}/file/info", self.base_url))
+            .bearer_auth(&token)
+            .query(&[("uri", uri)])
+            .send()
+            .await?;
+
+        let data = self.check_response(resp).await?;
+
+        Ok(RemoteFileEntry {
+            uri: data.get("uri").and_then(|u| u.as_str()).unwrap_or(uri).to_string(),
+            name: data.get("name").and_then(|n| n.as_str()).unwrap_or("").to_string(),
+            size: data.get("size").and_then(|s| s.as_u64()).unwrap_or(0),
+            mtime_ms: data.get("updated_at").and_then(|t| t.as_str()).map(parse_timestamp).unwrap_or(0),
+            hash: None,
+            is_dir: data.get("type").and_then(|t| t.as_u64()).unwrap_or(0) == 1,
+            file_id: data.get("id").and_then(|i| i.as_str()).map(String::from),
+            path: data.get("path").and_then(|p| p.as_str()).unwrap_or("").to_string(),
+            created_at_ms: data.get("created_at").and_then(|t| t.as_str()).map(parse_timestamp).unwrap_or(0),
+        })
     }
 }
 
-/// SSE 事件流占位
-pub struct SseEventStream;
-
-#[derive(Debug, Clone)]
-pub enum SseEvent {
-    Resumed,
-    FileChange(Vec<RemoteFileEvent>),
-    ReconnectRequired,
+/// 解析 Cloudreve 时间戳 (ISO 8601 或 Unix ms)
+fn parse_timestamp(s: &str) -> i64 {
+    // 尝试解析 ISO 8601
+    if let Ok(dt) = chrono::DateTime::parse_from_rfc3339(s) {
+        return dt.timestamp_millis();
+    }
+    // 尝试解析 Unix 秒
+    if let Ok(ts) = s.parse::<i64>() {
+        // 如果值在合理范围内认为是秒
+        if ts < 10_000_000_000 {
+            return ts * 1000;
+        }
+        return ts; // 已经是毫秒
+    }
+    0
 }

@@ -27,6 +27,10 @@ impl CustomizeConnection<Connection, rusqlite::Error> for SyncDbConnectionCustom
 }
 
 impl SyncDb {
+    pub fn read_pool(&self) -> r2d2::Pool<SqliteConnectionManager> {
+        self.read_pool.clone()
+    }
+
     pub fn open(db_path: &Path) -> Result<Self> {
         if let Some(parent) = db_path.parent() {
             std::fs::create_dir_all(parent)?;
