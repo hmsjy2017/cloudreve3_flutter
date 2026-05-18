@@ -18,6 +18,7 @@ import 'presentation/providers/upload_manager_provider.dart';
 import 'presentation/providers/download_manager_provider.dart';
 import 'presentation/providers/user_setting_provider.dart';
 import 'presentation/providers/admin_provider.dart';
+import 'presentation/providers/quick_access_provider.dart';
 import 'presentation/providers/theme_provider.dart';
 import 'services/upload_service.dart';
 import 'services/upload_foreground_service.dart';
@@ -162,6 +163,7 @@ class CloudreveApp extends StatelessWidget {
             ChangeNotifierProvider(create: (_) => DownloadManagerProvider()..initialize()),
             ChangeNotifierProvider(create: (_) => UserSettingProvider()),
             ChangeNotifierProvider(create: (_) => AdminProvider()),
+            ChangeNotifierProvider(create: (_) => QuickAccessProvider()..load()),
           ],
           child: const AppView(),
         );

@@ -1,56 +1,129 @@
 import 'package:cloudreve4_flutter/core/constants/quick_access_defaults.dart';
-import 'package:cloudreve4_flutter/services/storage_service.dart';
+import 'package:cloudreve4_flutter/presentation/providers/quick_access_provider.dart';
 import 'package:cloudreve4_flutter/presentation/widgets/toast_helper.dart';
 import 'package:flutter/material.dart';
 import 'package:lucide_icons/lucide_icons.dart';
+import 'package:provider/provider.dart';
 
-class QuickAccessSettingsPage extends StatefulWidget {
+class QuickAccessSettingsPage extends StatelessWidget {
   const QuickAccessSettingsPage({super.key});
 
   @override
-  State<QuickAccessSettingsPage> createState() => _QuickAccessSettingsPageState();
-}
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final provider = context.watch<QuickAccessProvider>();
 
-class _QuickAccessSettingsPageState extends State<QuickAccessSettingsPage> {
-  List<QuickAccessConfig> _items = [];
-  bool _isLoaded = false;
-
-  @override
-  void initState() {
-    super.initState();
-    _loadConfig();
-  }
-
-  Future<void> _loadConfig() async {
-    var saved = await StorageService.instance.getString(QuickAccessConfig.storageKey);
-    if (saved != null && saved.isNotEmpty) {
-      try {
-        if (mounted) setState(() { _items = QuickAccessConfig.parseSaved(saved); _isLoaded = true; });
-        return;
-      } catch (_) {}
-    }
-    // 迁移 v1
-    final v1 = await StorageService.instance.getString('quick_access_shortcuts');
-    if (v1 != null && v1.isNotEmpty) {
-      final migrated = QuickAccessConfig.migrateV1(v1);
-      if (mounted) {
-        setState(() { _items = migrated; _isLoaded = true; });
-        await _save();
-      }
-      return;
-    }
-    if (mounted) setState(() { _items = List.from(QuickAccessConfig.defaults); _isLoaded = true; });
-  }
-
-  Future<void> _save() async {
-    await StorageService.instance.setString(
-      QuickAccessConfig.storageKey,
-      QuickAccessConfig.serialize(_items),
+    return Scaffold(
+      appBar: AppBar(title: const Text('快捷入口')),
+      body: ListView(
+        children: [
+          Padding(
+            padding: const EdgeInsets.all(16),
+            child: Text(
+              '自定义概览页中显示的快捷目录入口。默认入口不可删除，但可编辑路径和调整顺序。',
+              style: theme.textTheme.bodyMedium?.copyWith(color: theme.hintColor),
+            ),
+          ),
+          if (provider.isLoaded)
+            ...List.generate(provider.items.length, (index) {
+              final item = provider.items[index];
+              return Card(
+                margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                child: ListTile(
+                  leading: Container(
+                    width: 40,
+                    height: 40,
+                    decoration: BoxDecoration(
+                      color: item.color.withValues(alpha: 0.2),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Icon(item.icon, size: 20, color: item.color.darken(0.3)),
+                  ),
+                  title: Row(
+                    children: [
+                      Text(item.label),
+                      if (item.isDefault) ...[
+                        const SizedBox(width: 6),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+                          decoration: BoxDecoration(
+                            color: theme.colorScheme.primary.withValues(alpha: 0.1),
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                          child: Text('默认', style: TextStyle(fontSize: 10, color: theme.colorScheme.primary, fontWeight: FontWeight.w600)),
+                        ),
+                      ],
+                    ],
+                  ),
+                  subtitle: Text(item.path, style: TextStyle(color: theme.hintColor, fontSize: 12)),
+                  trailing: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      IconButton(
+                        icon: Icon(LucideIcons.chevronUp, size: 18),
+                        onPressed: index > 0 ? () => provider.moveItem(index, index - 1) : null,
+                        tooltip: '上移',
+                        visualDensity: VisualDensity.compact,
+                      ),
+                      IconButton(
+                        icon: Icon(LucideIcons.chevronDown, size: 18),
+                        onPressed: index < provider.items.length - 1 ? () => provider.moveItem(index, index + 1) : null,
+                        tooltip: '下移',
+                        visualDensity: VisualDensity.compact,
+                      ),
+                      IconButton(
+                        icon: Icon(LucideIcons.pencil, size: 16),
+                        onPressed: () => _editItem(context, provider, index),
+                        tooltip: '编辑',
+                        visualDensity: VisualDensity.compact,
+                      ),
+                      if (!item.isDefault)
+                        IconButton(
+                          icon: Icon(LucideIcons.trash2, size: 16, color: theme.colorScheme.error),
+                          onPressed: () {
+                            provider.deleteItem(index);
+                            ToastHelper.success('快捷入口已删除');
+                          },
+                          tooltip: '删除',
+                          visualDensity: VisualDensity.compact,
+                        ),
+                    ],
+                  ),
+                ),
+              );
+            }),
+          const SizedBox(height: 16),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: Row(
+              children: [
+                Expanded(
+                  child: FilledButton.icon(
+                    icon: const Icon(LucideIcons.plus, size: 18),
+                    label: const Text('新增快捷入口'),
+                    onPressed: () => _addItem(context, provider),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                OutlinedButton.icon(
+                  icon: const Icon(LucideIcons.rotateCcw, size: 16),
+                  label: const Text('恢复默认'),
+                  onPressed: () {
+                    provider.resetToDefaults();
+                    ToastHelper.success('已恢复默认设置');
+                  },
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 32),
+        ],
+      ),
     );
   }
 
-  Future<void> _editItem(int index) async {
-    final item = _items[index];
+  Future<void> _editItem(BuildContext context, QuickAccessProvider provider, int index) async {
+    final item = provider.items[index];
     final labelController = TextEditingController(text: item.label);
     final pathController = TextEditingController(text: item.path);
 
@@ -83,18 +156,18 @@ class _QuickAccessSettingsPageState extends State<QuickAccessSettingsPage> {
     );
 
     if (result != null) {
-      setState(() {
-        _items[index] = item.copyWith(
+      provider.updateItem(
+        index,
+        item.copyWith(
           label: result.label.isNotEmpty ? result.label : item.label,
           path: result.path.isNotEmpty ? result.path : item.path,
-        );
-      });
-      _save();
+        ),
+      );
       ToastHelper.success('快捷入口已更新');
     }
   }
 
-  Future<void> _addItem() async {
+  Future<void> _addItem(BuildContext context, QuickAccessProvider provider) async {
     final labelController = TextEditingController();
     final pathController = TextEditingController();
     IconData selectedIcon = LucideIcons.folder;
@@ -195,151 +268,15 @@ class _QuickAccessSettingsPageState extends State<QuickAccessSettingsPage> {
     );
 
     if (result != null && result.label.isNotEmpty && result.path.isNotEmpty) {
-      setState(() {
-        _items.add(QuickAccessConfig(
-          id: 'custom_${DateTime.now().millisecondsSinceEpoch}',
-          label: result.label,
-          icon: result.icon,
-          path: result.path,
-          color: result.color,
-        ));
-      });
-      _save();
+      provider.addItem(QuickAccessConfig(
+        id: 'custom_${DateTime.now().millisecondsSinceEpoch}',
+        label: result.label,
+        icon: result.icon,
+        path: result.path,
+        color: result.color,
+      ));
       ToastHelper.success('快捷入口已添加');
     }
-  }
-
-  void _moveItem(int from, int to) {
-    if (from < 0 || from >= _items.length || to < 0 || to >= _items.length || from == to) return;
-    setState(() {
-      final item = _items.removeAt(from);
-      _items.insert(to, item);
-    });
-    _save();
-  }
-
-  void _deleteItem(int index) {
-    if (_items[index].isDefault) return;
-    setState(() {
-      _items.removeAt(index);
-    });
-    _save();
-    ToastHelper.success('快捷入口已删除');
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
-    return Scaffold(
-      appBar: AppBar(title: const Text('快捷入口')),
-      body: ListView(
-        children: [
-          Padding(
-            padding: const EdgeInsets.all(16),
-            child: Text(
-              '自定义概览页中显示的快捷目录入口。默认入口不可删除，但可编辑路径和调整顺序。',
-              style: theme.textTheme.bodyMedium?.copyWith(color: theme.hintColor),
-            ),
-          ),
-          if (_isLoaded)
-            ...List.generate(_items.length, (index) {
-              final item = _items[index];
-              return Card(
-                margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-                child: ListTile(
-                  leading: Container(
-                    width: 40,
-                    height: 40,
-                    decoration: BoxDecoration(
-                      color: item.color.withValues(alpha: 0.2),
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                    child: Icon(item.icon, size: 20, color: item.color.darken(0.3)),
-                  ),
-                  title: Row(
-                    children: [
-                      Text(item.label),
-                      if (item.isDefault) ...[
-                        const SizedBox(width: 6),
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
-                          decoration: BoxDecoration(
-                            color: theme.colorScheme.primary.withValues(alpha: 0.1),
-                            borderRadius: BorderRadius.circular(4),
-                          ),
-                          child: Text('默认', style: TextStyle(fontSize: 10, color: theme.colorScheme.primary, fontWeight: FontWeight.w600)),
-                        ),
-                      ],
-                    ],
-                  ),
-                  subtitle: Text(item.path, style: TextStyle(color: theme.hintColor, fontSize: 12)),
-                  trailing: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      // 上移
-                      IconButton(
-                        icon: Icon(LucideIcons.chevronUp, size: 18),
-                        onPressed: index > 0 ? () => _moveItem(index, index - 1) : null,
-                        tooltip: '上移',
-                        visualDensity: VisualDensity.compact,
-                      ),
-                      // 下移
-                      IconButton(
-                        icon: Icon(LucideIcons.chevronDown, size: 18),
-                        onPressed: index < _items.length - 1 ? () => _moveItem(index, index + 1) : null,
-                        tooltip: '下移',
-                        visualDensity: VisualDensity.compact,
-                      ),
-                      // 编辑
-                      IconButton(
-                        icon: Icon(LucideIcons.pencil, size: 16),
-                        onPressed: () => _editItem(index),
-                        tooltip: '编辑',
-                        visualDensity: VisualDensity.compact,
-                      ),
-                      // 删除（默认不可删）
-                      if (!item.isDefault)
-                        IconButton(
-                          icon: Icon(LucideIcons.trash2, size: 16, color: theme.colorScheme.error),
-                          onPressed: () => _deleteItem(index),
-                          tooltip: '删除',
-                          visualDensity: VisualDensity.compact,
-                        ),
-                    ],
-                  ),
-                ),
-              );
-            }),
-          const SizedBox(height: 16),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            child: Row(
-              children: [
-                Expanded(
-                  child: FilledButton.icon(
-                    icon: const Icon(LucideIcons.plus, size: 18),
-                    label: const Text('新增快捷入口'),
-                    onPressed: _addItem,
-                  ),
-                ),
-                const SizedBox(width: 12),
-                OutlinedButton.icon(
-                  icon: const Icon(LucideIcons.rotateCcw, size: 16),
-                  label: const Text('恢复默认'),
-                  onPressed: () {
-                    setState(() { _items = List.from(QuickAccessConfig.defaults); });
-                    _save();
-                    ToastHelper.success('已恢复默认设置');
-                  },
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 32),
-        ],
-      ),
-    );
   }
 }
 

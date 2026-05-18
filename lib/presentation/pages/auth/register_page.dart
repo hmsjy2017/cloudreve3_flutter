@@ -1,12 +1,17 @@
+import 'package:cloudreve4_flutter/data/models/login_config_model.dart';
 import 'package:cloudreve4_flutter/presentation/widgets/desktop_constrained.dart';
+import 'package:cloudreve4_flutter/services/captcha_service.dart';
 import 'package:flutter/material.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 import '../../../core/validators/string_validator.dart';
 import '../../../services/auth_service.dart';
+import '../../../services/server_service.dart';
 import '../../widgets/toast_helper.dart';
 
 class RegisterPage extends StatefulWidget {
-  const RegisterPage({super.key});
+  final LoginConfigModel loginConfig;
+
+  const RegisterPage({super.key, this.loginConfig = const LoginConfigModel()});
 
   @override
   State<RegisterPage> createState() => _RegisterPageState();
@@ -21,6 +26,21 @@ class _RegisterPageState extends State<RegisterPage> {
   bool _obscureConfirmPassword = true;
   bool _isLoading = false;
   String? _errorMessage;
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.loginConfig.regCaptcha) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        final server = ServerService.instance.currentServer;
+        if (server != null) {
+          CaptchaService.instance.loadCaptcha(server.baseUrl).then((_) {
+            if (mounted) setState(() {});
+          });
+        }
+      });
+    }
+  }
 
   @override
   void dispose() {
@@ -38,16 +58,28 @@ class _RegisterPageState extends State<RegisterPage> {
       return;
     }
 
+    final captcha = CaptchaService.instance;
+    if (widget.loginConfig.regCaptcha && !captcha.isWebCaptchaVerified) {
+      ToastHelper.failure('请先完成人机验证');
+      return;
+    }
+
     setState(() {
       _isLoading = true;
       _errorMessage = null;
     });
 
     try {
+      final captchaParams = widget.loginConfig.regCaptcha
+          ? captcha.getCaptchaParams()
+          : <String, String>{};
+
       final response = await AuthService.instance.signUp(
         email: _emailController.text.trim(),
         password: _passwordController.text,
         language: 'zh-CN',
+        captcha: captchaParams['captcha'],
+        ticket: captchaParams['ticket'],
       );
 
       if (mounted) {
@@ -58,6 +90,10 @@ class _RegisterPageState extends State<RegisterPage> {
       }
     } catch (e) {
       if (mounted) {
+        if (widget.loginConfig.regCaptcha) {
+          await captcha.refreshCaptcha();
+          setState(() {});
+        }
         setState(() => _errorMessage = e.toString());
       }
     } finally {
@@ -68,6 +104,7 @@ class _RegisterPageState extends State<RegisterPage> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final captcha = CaptchaService.instance;
 
     return Scaffold(
       appBar: AppBar(title: const Text('注册')),
@@ -138,6 +175,10 @@ class _RegisterPageState extends State<RegisterPage> {
                             ),
                           ),
                         ),
+                        if (widget.loginConfig.regCaptcha) ...[
+                          const SizedBox(height: 16),
+                          captcha.buildCaptchaInput(context),
+                        ],
                         if (_errorMessage != null) ...[
                           const SizedBox(height: 16),
                           Container(

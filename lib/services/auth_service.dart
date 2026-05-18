@@ -1,3 +1,4 @@
+import '../data/models/login_config_model.dart';
 import '../data/models/user_model.dart';
 import 'api_service.dart';
 import '../core/utils/app_logger.dart';
@@ -19,6 +20,24 @@ class AuthService {
       noAuth: true,
     );
     return response as Map<String, bool>;
+  }
+
+  /// 获取登录配置（是否需要验证码、是否允许注册等）
+  Future<LoginConfigModel> getLoginConfig() async {
+    final response = await ApiService.instance.get<Map<String, dynamic>>(
+      '/site/config/login',
+      noAuth: true,
+    );
+
+    final data = response['data'];
+    if (data is Map<String, dynamic>) {
+      return LoginConfigModel.fromJson(data);
+    }
+    if (data is Map) {
+      return LoginConfigModel.fromJson(Map<String, dynamic>.from(data));
+    }
+
+    return LoginConfigModel.fromJson(response);
   }
 
   /// 获取图形验证码

@@ -1,14 +1,19 @@
 import 'package:flutter/material.dart';
 import 'package:lucide_icons/lucide_icons.dart';
+import 'package:provider/provider.dart';
 
 import '../../../../core/constants/quick_access_defaults.dart';
 import '../../../../router/app_router.dart';
+import '../../../providers/file_manager_provider.dart';
+import '../../../providers/navigation_provider.dart';
+import '../../../providers/quick_access_provider.dart';
 import '../../files/category_files_page.dart';
 
 /// 首页快捷入口。
 ///
 /// 默认四个入口不再跳转到固定文件夹，而是调用 Cloudreve 分类搜索：
 /// 图片 / 视频 / 文档 / 音乐。
+/// 用户自定义的目录快捷入口会跳转到文件管理器对应路径。
 class QuickAccessGrid extends StatelessWidget {
   final bool fillHeight;
 
@@ -19,57 +24,71 @@ class QuickAccessGrid extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final items = QuickAccessConfig.defaults;
-
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final isWide = constraints.maxWidth >= 520;
-        final childAspectRatio = fillHeight
-            ? (isWide ? 2.25 : 2.35)
-            : (isWide ? 2.55 : 2.45);
-
-        return Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Icon(
-                  LucideIcons.zap,
-                  size: 20,
-                  color: Theme.of(context).colorScheme.primary,
-                ),
-                const SizedBox(width: 8),
-                Text(
-                  '快捷入口',
-                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                        fontWeight: FontWeight.w700,
-                      ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 14),
-            GridView.builder(
-              shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-              itemCount: items.length,
-              gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                crossAxisCount: isWide ? 4 : 2,
-                mainAxisSpacing: 12,
-                crossAxisSpacing: 12,
-                childAspectRatio: childAspectRatio,
-              ),
-              itemBuilder: (context, index) {
-                final item = items[index];
-                return _QuickAccessButton(
-                  item: item,
-                  onTap: () => _openCategory(context, item),
-                );
-              },
-            ),
-          ],
-        );
-      },
+    final theme = Theme.of(context);
+    final items = context.select<QuickAccessProvider, List<QuickAccessConfig>>(
+      (p) => p.items,
     );
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: fillHeight ? MainAxisSize.max : MainAxisSize.min,
+      children: [
+        Padding(
+          padding: const EdgeInsets.only(left: 4, bottom: 14),
+          child: Row(
+            children: [
+              Icon(LucideIcons.zap, size: 18, color: theme.colorScheme.primary),
+              const SizedBox(width: 8),
+              Text('快捷入口', style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600)),
+            ],
+          ),
+        ),
+        ..._buildRows(context, items),
+      ],
+    );
+  }
+
+  List<Widget> _buildRows(BuildContext context, List<QuickAccessConfig> items) {
+    final total = items.length;
+    if (total == 0) return [];
+
+    final maxCols = total > 6 ? 3 : 2;
+    const gap = 10.0;
+    final rows = <Widget>[];
+
+    for (int i = 0; i < total; i += maxCols) {
+      final rowItems = <Widget>[];
+      final remaining = total - i;
+      final colsInRow = remaining < maxCols ? remaining : maxCols;
+
+      for (int j = 0; j < colsInRow; j++) {
+        final index = i + j;
+        if (j > 0) rowItems.add(const SizedBox(width: gap));
+        rowItems.add(
+          Expanded(
+            child: _QuickAccessButton(
+              item: items[index],
+              onTap: () => _onTap(context, items[index]),
+            ),
+          ),
+        );
+      }
+
+      final row = Row(children: rowItems);
+      rows.add(fillHeight ? Expanded(child: row) : row);
+      if (i + maxCols < total) {
+        rows.add(const SizedBox(height: gap));
+      }
+    }
+    return rows;
+  }
+
+  void _onTap(BuildContext context, QuickAccessConfig item) {
+    if (item.path.startsWith('cloudreve://my?category=')) {
+      _openCategory(context, item);
+    } else {
+      _openDirectory(context, item);
+    }
   }
 
   void _openCategory(BuildContext context, QuickAccessConfig item) {
@@ -78,6 +97,14 @@ class QuickAccessGrid extends StatelessWidget {
       RouteNames.categoryFiles,
       arguments: args,
     );
+  }
+
+  void _openDirectory(BuildContext context, QuickAccessConfig item) {
+    final dirPath = item.path.startsWith('/') ? item.path : '/${item.path}';
+    final navProvider = context.read<NavigationProvider>();
+    final fileManager = context.read<FileManagerProvider>();
+    navProvider.setIndex(1);
+    fileManager.enterFolder(dirPath);
   }
 
   CategoryFilesPageArgs _argsForItem(QuickAccessConfig item) {
@@ -157,10 +184,11 @@ class _QuickAccessButton extends StatelessWidget {
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
             child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
               children: [
                 Icon(item.icon, color: foreground, size: 22),
                 const SizedBox(width: 9),
-                Expanded(
+                Flexible(
                   child: Text(
                     item.label,
                     maxLines: 1,

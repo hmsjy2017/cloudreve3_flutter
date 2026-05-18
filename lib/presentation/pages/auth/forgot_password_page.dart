@@ -1,12 +1,17 @@
+import 'package:cloudreve4_flutter/data/models/login_config_model.dart';
 import 'package:cloudreve4_flutter/presentation/widgets/desktop_constrained.dart';
+import 'package:cloudreve4_flutter/services/captcha_service.dart';
 import 'package:flutter/material.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 import '../../../core/validators/string_validator.dart';
 import '../../../services/auth_service.dart';
+import '../../../services/server_service.dart';
 import '../../widgets/toast_helper.dart';
 
 class ForgotPasswordPage extends StatefulWidget {
-  const ForgotPasswordPage({super.key});
+  final LoginConfigModel loginConfig;
+
+  const ForgotPasswordPage({super.key, this.loginConfig = const LoginConfigModel()});
 
   @override
   State<ForgotPasswordPage> createState() => _ForgotPasswordPageState();
@@ -19,6 +24,21 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
   String? _errorMessage;
 
   @override
+  void initState() {
+    super.initState();
+    if (widget.loginConfig.forgetCaptcha) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        final server = ServerService.instance.currentServer;
+        if (server != null) {
+          CaptchaService.instance.loadCaptcha(server.baseUrl).then((_) {
+            if (mounted) setState(() {});
+          });
+        }
+      });
+    }
+  }
+
+  @override
   void dispose() {
     _emailController.dispose();
     super.dispose();
@@ -27,14 +47,26 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
   Future<void> _sendResetEmail() async {
     if (!_formKey.currentState!.validate()) return;
 
+    final captcha = CaptchaService.instance;
+    if (widget.loginConfig.forgetCaptcha && !captcha.isWebCaptchaVerified) {
+      ToastHelper.failure('请先完成人机验证');
+      return;
+    }
+
     setState(() {
       _isLoading = true;
       _errorMessage = null;
     });
 
     try {
+      final captchaParams = widget.loginConfig.forgetCaptcha
+          ? captcha.getCaptchaParams()
+          : <String, String>{};
+
       await AuthService.instance.sendResetPasswordEmail(
         email: _emailController.text.trim(),
+        captcha: captchaParams['captcha'],
+        ticket: captchaParams['ticket'],
       );
 
       if (mounted) {
@@ -43,6 +75,10 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
       }
     } catch (e) {
       if (mounted) {
+        if (widget.loginConfig.forgetCaptcha) {
+          await captcha.refreshCaptcha();
+          setState(() {});
+        }
         setState(() => _errorMessage = e.toString());
       }
     } finally {
@@ -53,6 +89,7 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final captcha = CaptchaService.instance;
 
     return Scaffold(
       appBar: AppBar(title: const Text('忘记密码')),
@@ -91,6 +128,10 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
                             prefixIcon: Icon(LucideIcons.mail),
                           ),
                         ),
+                        if (widget.loginConfig.forgetCaptcha) ...[
+                          const SizedBox(height: 16),
+                          captcha.buildCaptchaInput(context),
+                        ],
                         if (_errorMessage != null) ...[
                           const SizedBox(height: 16),
                           Container(
