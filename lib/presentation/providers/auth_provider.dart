@@ -105,6 +105,10 @@ class AuthProvider extends ChangeNotifier {
         await ServerService.instance.clearCurrentServerLogin();
         setRefreshTokenExpired();
       },
+      onCredentialExpired: () {
+        // 凭证过期，仅跳转登录页，不清除保存的账号密码
+        setRefreshTokenExpired();
+      },
     );
   }
 

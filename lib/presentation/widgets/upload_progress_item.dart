@@ -25,6 +25,13 @@ class UploadProgressItem extends StatelessWidget {
     this.onNavigate,
   });
 
+  static String _formatBytes(int bytes) {
+    if (bytes < 1024) return '$bytes B';
+    if (bytes < 1024 * 1024) return '${(bytes / 1024).toStringAsFixed(1)} KB';
+    if (bytes < 1024 * 1024 * 1024) return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
+    return '${(bytes / (1024 * 1024 * 1024)).toStringAsFixed(1)} GB';
+  }
+
   @override
   Widget build(BuildContext context) {
     final isUploading = task.status == UploadStatus.uploading;
@@ -102,7 +109,7 @@ class UploadProgressItem extends StatelessWidget {
                   Row(
                     children: [
                       Text(
-                        '${task.uploadedBytes}/${task.fileSize} bytes',
+                        '${_formatBytes(task.uploadedBytes)}/${task.readableFileSize}',
                         style: const TextStyle(fontSize: 12),
                       ),
                       const Spacer(),

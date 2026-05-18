@@ -19,7 +19,8 @@
         android:icon="@mipmap/launcher_icon"
         android:usesCleartextTraffic="true"
         android:supportsRtl="true"
-        android:enableOnBackInvokedCallback="true">
+        android:enableOnBackInvokedCallback="true"
+        android:largeHeap="true">
 
         <activity
             android:name=".MainActivity"

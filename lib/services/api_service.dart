@@ -53,6 +53,9 @@ class ApiService {
   /// 清除认证数据的回调
   Future<void> Function()? clearAuthCallback;
 
+  /// 凭证过期回调（仅跳转登录页，不清除保存的账号密码）
+  void Function()? onCredentialExpired;
+
   ApiService._() {
     _dio = Dio(
       BaseOptions(
@@ -87,11 +90,13 @@ class ApiService {
     required Future<String?> Function() getToken,
     required Future<void> Function() refreshToken,
     required Future<void> Function() clearAuth,
+    void Function()? onCredentialExpired,
   }) {
     final service = instance;
     service.getTokenCallback = getToken;
     service.refreshTokenCallback = refreshToken;
     service.clearAuthCallback = clearAuth;
+    service.onCredentialExpired = onCredentialExpired;
   }
 
   /// 初始化API服务（设置正确的baseUrl）
@@ -149,6 +154,10 @@ class ApiService {
               // 异步处理，不阻塞响应
               _handle401InResponse(response.requestOptions);
             }
+          } else if (code == 40020) {
+            // Invalid Credentials — refreshToken 也失效，凭证过期
+            AppLogger.d('_responseInterceptor -> 凭证过期 (code 40020)');
+            _handleCredentialExpired();
           }
         }
         return handler.next(response);
@@ -184,6 +193,13 @@ class ApiService {
     }
   }
 
+  /// 处理凭证过期（code 40020），提示用户并跳转登录页
+  void _handleCredentialExpired() {
+    if (onCredentialExpired != null) {
+      onCredentialExpired!();
+    }
+  }
+
   /// 错误拦截器
   Interceptor _errorInterceptor() {
     return InterceptorsWrapper(
@@ -207,6 +223,15 @@ class ApiService {
             if (response != null) {
               return handler.resolve(response);
             }
+          }
+        }
+
+        // 检查是否是凭证过期错误（code 40020）
+        if (error.response?.data is Map<String, dynamic>) {
+          final data = error.response!.data as Map<String, dynamic>;
+          if (data['code'] == 40020) {
+            _handleCredentialExpired();
+            return handler.next(error);
           }
         }
 
