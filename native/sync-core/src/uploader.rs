@@ -8,6 +8,7 @@ use std::path::Path;
 use tokio::sync::Semaphore;
 
 /// 上传单个文件（含重试），受并发信号量控制
+/// 逐块读取文件，避免全量加载到内存
 #[allow(clippy::too_many_arguments)]
 pub async fn upload_file(
     task_id: &str,
@@ -67,16 +68,16 @@ pub async fn upload_file(
 
     let overwrite = action.db_mapping.is_some();
 
-    // 读取文件（加重试）
-    let data = {
+    // 打开文件（加重试，处理文件被占用的情况）
+    let file = {
         let mut read_retries = 0u32;
         loop {
-            match tokio::fs::read(&local_path).await {
-                Ok(d) => break d,
+            match tokio::fs::File::open(&local_path).await {
+                Ok(f) => break f,
                 Err(e) if e.raw_os_error() == Some(32) && read_retries < 5 => {
                     read_retries += 1;
                     let delay = read_retries * 1000;
-                    tracing::warn!("[{}] 复制过程中文件被占用，{}ms后重试 ({}): {}", task_id, delay, read_retries, local_path.display());
+                    tracing::warn!("[{}] 文件被占用，{}ms后重试 ({}): {}", task_id, delay, read_retries, local_path.display());
                     tokio::time::sleep(std::time::Duration::from_millis(delay as u64)).await;
                 }
                 Err(e) => return Err(e.into()),
@@ -93,10 +94,28 @@ pub async fn upload_file(
 
     tracing::info!("[{}] chunk_size={}bytes, 开始上传: {} ({}bytes)", task_id, chunk_size, action.relative_path, local.size);
 
-    for (index, chunk) in data.chunks(chunk_size).enumerate() {
+    // 逐块读取 + 上传，内存占用仅为一个 chunk
+    // 分片上传要求：每个分片（除最后一个）必须恰好 chunk_size 字节
+    // 因此需要循环 read 直到读满 buffer 或到达 EOF，才能作为一个分片上传
+    let mut reader = tokio::io::BufReader::new(file);
+    let mut buf = vec![0u8; chunk_size];
+    let mut index: u32 = 0;
+
+    loop {
+        use tokio::io::AsyncReadExt;
+        let mut filled = 0usize;
+        loop {
+            let n = reader.read(&mut buf[filled..]).await?;
+            if n == 0 { break; }
+            filled += n;
+            if filled >= chunk_size { break; }
+        }
+        if filled == 0 { break; }
+
+        let chunk = &buf[..filled];
         let mut chunk_retries = 0u32;
         loop {
-            match api.upload_chunk(&session.session_id, index as u32, chunk).await {
+            match api.upload_chunk(&session.session_id, index, chunk).await {
                 Ok(_) => break,
                 Err(SyncError::Auth(_)) => return Err(SyncError::Auth("Token 过期".into())),
                 Err(e) if chunk_retries < max_retries => {
@@ -108,6 +127,7 @@ pub async fn upload_file(
                 Err(e) => return Err(e),
             }
         }
+        index += 1;
     }
 
     // 上传完成后获取远程文件信息
@@ -221,6 +241,37 @@ pub async fn ensure_remote_dirs(
                 }
             }
         }
+    }
+
+    Ok(())
+}
+
+/// 逐块读取文件并上传分片（用于相册同步等场景，避免全量加载到内存）
+/// 分片上传要求：每个分片（除最后一个）必须恰好 chunk_size 字节
+pub async fn upload_file_chunked(
+    api: &ApiClient,
+    local_path: &Path,
+    session: &UploadSession,
+) -> Result<()> {
+    let chunk_size = session.chunk_size as usize;
+    let file = tokio::fs::File::open(local_path).await?;
+    let mut reader = tokio::io::BufReader::new(file);
+    let mut buf = vec![0u8; chunk_size];
+    let mut index: u32 = 0;
+
+    loop {
+        use tokio::io::AsyncReadExt;
+        let mut filled = 0usize;
+        loop {
+            let n = reader.read(&mut buf[filled..]).await?;
+            if n == 0 { break; }
+            filled += n;
+            if filled >= chunk_size { break; }
+        }
+        if filled == 0 { break; }
+
+        api.upload_chunk(&session.session_id, index, &buf[..filled]).await?;
+        index += 1;
     }
 
     Ok(())

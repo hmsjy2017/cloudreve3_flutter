@@ -144,6 +144,23 @@ impl ApiClient {
         if api_resp.code == 40004 {
             return Err(SyncError::ObjectExisted);
         }
+        if api_resp.code == 40073 {
+            let items = api_resp.data
+                .and_then(|d| d.as_array().cloned())
+                .unwrap_or_default()
+                .iter()
+                .filter_map(|item| {
+                    let path = item.get("path").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                    let token = item.get("token").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                    if !token.is_empty() {
+                        Some(crate::errors::LockConflictItem { path, token })
+                    } else {
+                        None
+                    }
+                })
+                .collect();
+            return Err(SyncError::LockConflict { tokens: items });
+        }
         if api_resp.code != 0 {
             return Err(SyncError::Network(
                 api_resp.msg.unwrap_or_else(|| format!("错误码: {}", api_resp.code)),
@@ -453,13 +470,65 @@ impl ApiClient {
             "uris": uris,
         });
 
+        let result = self.send_with_auth_retry(|token| {
+            let client = &self.client;
+            let base_url = &self.base_url;
+            let body = body.clone();
+            client
+                .delete(format!("{}/file", base_url))
+                .bearer_auth(&token)
+                .json(&body)
+        }).await;
+
+        match result {
+            Ok(_) => Ok(()),
+            Err(SyncError::LockConflict { tokens }) => {
+                for item in &tokens {
+                    tracing::warn!(
+                        "删除异常: code(40073), 进行解锁, token: {}, path: {}",
+                        item.token, item.path
+                    );
+                }
+                self.force_unlock_files(&tokens).await?;
+
+                // 解锁后重试删除
+                self.send_with_auth_retry(|token| {
+                    let client = &self.client;
+                    let base_url = &self.base_url;
+                    let body = body.clone();
+                    client
+                        .delete(format!("{}/file", base_url))
+                        .bearer_auth(&token)
+                        .json(&body)
+                }).await?;
+                Ok(())
+            }
+            Err(e) => Err(e),
+        }
+    }
+
+    /// 强制解锁文件 — DELETE /file/lock
+    pub async fn force_unlock_files(&self, items: &[crate::errors::LockConflictItem]) -> Result<()> {
+        let tokens: Vec<&str> = items.iter().map(|i| i.token.as_str()).collect();
+        if tokens.is_empty() {
+            return Ok(());
+        }
+
+        let body = serde_json::json!({
+            "tokens": tokens,
+        });
+
         self.send_with_auth_retry(|token| {
-            self.client
-                .delete(format!("{}/file", self.base_url))
+            let client = &self.client;
+            let base_url = &self.base_url;
+            let body = body.clone();
+            client
+                .delete(format!("{}/file/lock", base_url))
                 .bearer_auth(&token)
                 .json(&body)
         }).await?;
 
+        tracing::info!("强制解锁完成: {} 个文件", items.len());
         Ok(())
     }
 

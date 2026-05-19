@@ -14,6 +14,9 @@ pub enum SyncError {
     #[error("远程文件已存在")]
     ObjectExisted,
 
+    #[error("文件锁定冲突")]
+    LockConflict { tokens: Vec<LockConflictItem> },
+
     #[error("冲突: {count} 个文件存在冲突")]
     Conflict { count: u32 },
 
@@ -67,6 +70,13 @@ impl From<tokio::task::JoinError> for SyncError {
     fn from(e: tokio::task::JoinError) -> Self {
         SyncError::Internal(e.to_string())
     }
+}
+
+/// 锁冲突条目 — 来自 40073 响应的 data 数组
+#[derive(Debug, Clone)]
+pub struct LockConflictItem {
+    pub path: String,
+    pub token: String,
 }
 
 pub type Result<T> = std::result::Result<T, SyncError>;

@@ -130,8 +130,8 @@ pub async fn download_file(
 }
 
 /// 流式写入文件（含带宽限速）
-/// 限速策略：先尽快从 HTTP 流读取数据到内存缓冲（避免连接超时），
-/// 再按限速节奏写入磁盘
+/// 限速策略：token bucket，每读一个 chunk 就写盘 + 按 limit 计算 sleep，
+/// 内存占用仅为一个网络 chunk（通常 8~64KB），而非整个文件
 pub async fn stream_to_file(
     resp: reqwest::Response,
     tmp_path: &std::path::Path,
@@ -142,39 +142,35 @@ pub async fn stream_to_file(
     let mut stream = resp.bytes_stream();
     use futures_util::StreamExt;
 
-    // 无限速：直接流式写入
-    if bandwidth_limit.is_none() {
-        while let Some(chunk) = stream.next().await {
-            let chunk = chunk.map_err(|e| SyncError::Network(e.to_string()))?;
-            file.write_all(&chunk).await?;
+    match bandwidth_limit {
+        None => {
+            // 无限速：直接流式写入
+            while let Some(chunk) = stream.next().await {
+                let chunk = chunk.map_err(|e| SyncError::Network(e.to_string()))?;
+                file.write_all(&chunk).await?;
+            }
         }
-        file.flush().await?;
-        return Ok(());
-    }
+        Some(limit) => {
+            // 限速：token bucket，逐块写盘 + 按 limit sleep
+            let transfer_start = std::time::Instant::now();
+            let mut total_bytes: u64 = 0;
 
-    // 有限速：先快速读取到内存，再按节奏写磁盘
-    let limit = bandwidth_limit.unwrap();
-    let mut all_chunks: Vec<bytes::Bytes> = Vec::new();
-    while let Some(chunk) = stream.next().await {
-        let chunk = chunk.map_err(|e| SyncError::Network(e.to_string()))?;
-        all_chunks.push(chunk);
-    }
+            while let Some(chunk) = stream.next().await {
+                let chunk = chunk.map_err(|e| SyncError::Network(e.to_string()))?;
+                total_bytes += chunk.len() as u64;
+                file.write_all(&chunk).await?;
 
-    let transfer_start = std::time::Instant::now();
-    let mut total_bytes: u64 = 0;
-
-    for chunk in &all_chunks {
-        total_bytes += chunk.len() as u64;
-        file.write_all(chunk).await?;
-
-        let expected_elapsed = std::time::Duration::from_micros(
-            total_bytes * 1_000_000 / limit
-        );
-        let actual_elapsed = transfer_start.elapsed();
-        if expected_elapsed > actual_elapsed {
-            tokio::time::sleep(expected_elapsed - actual_elapsed).await;
+                let expected_elapsed = std::time::Duration::from_micros(
+                    total_bytes * 1_000_000 / limit
+                );
+                let actual_elapsed = transfer_start.elapsed();
+                if expected_elapsed > actual_elapsed {
+                    tokio::time::sleep(expected_elapsed - actual_elapsed).await;
+                }
+            }
         }
     }
+
     file.flush().await?;
     Ok(())
 }

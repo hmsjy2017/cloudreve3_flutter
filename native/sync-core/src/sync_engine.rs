@@ -617,36 +617,25 @@ impl SyncEngine {
 
                     match self.api.create_upload_session(remote_dcim_uri, file_size, false, None, None, None).await {
                         Ok(session) => {
-                            match tokio::fs::read(photo_path).await {
-                                Ok(data) => {
-                                    let chunk_size = session.chunk_size as usize;
-                                    let mut upload_ok = true;
+                            match crate::uploader::upload_file_chunked(
+                                &self.api, local_path, &session,
+                            ).await {
+                                Ok(_) => {
+                                    let remote_uri = format!("{}/{}", remote_dcim_uri, file_name);
+                                    let hash = crate::utils::quick_hash(local_path, file_size).await.unwrap_or_default();
 
-                                    for (index, chunk) in data.chunks(chunk_size).enumerate() {
-                                        if let Err(e) = self.api.upload_chunk(&session.session_id, index as u32, chunk).await {
-                                            tracing::error!("上传分片失败 {}: {}", file_name, e);
-                                            upload_ok = false;
-                                            break;
-                                        }
+                                    if let Err(e) = self.db.add_album_sync_record(
+                                        photo_path,
+                                        &remote_uri,
+                                        &hash,
+                                    ).await {
+                                        tracing::warn!("记录同步状态失败: {}", e);
                                     }
 
-                                    if upload_ok {
-                                        let remote_uri = format!("{}/{}", remote_dcim_uri, file_name);
-                                        let hash = crate::utils::quick_hash(local_path, file_size).await.unwrap_or_default();
-
-                                        if let Err(e) = self.db.add_album_sync_record(
-                                            photo_path,
-                                            &remote_uri,
-                                            &hash,
-                                        ).await {
-                                            tracing::warn!("记录同步状态失败: {}", e);
-                                        }
-
-                                        tracing::info!("照片上传完成 ({}/{}): {}", i + 1, total, file_name);
-                                    }
+                                    tracing::info!("照片上传完成 ({}/{}): {}", i + 1, total, file_name);
                                 }
                                 Err(e) => {
-                                    tracing::error!("读取照片失败 {}: {}", file_name, e);
+                                    tracing::error!("上传照片失败 {}: {}", file_name, e);
                                 }
                             }
                         }
