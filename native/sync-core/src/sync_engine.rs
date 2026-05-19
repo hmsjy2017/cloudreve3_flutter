@@ -1,6 +1,6 @@
 use crate::api_client::ApiClient;
 use crate::conflict_resolver::ConflictResolver;
-use crate::errors::{Result, SyncError};
+use crate::errors::Result;
 use crate::event_handler::EventHandler;
 use crate::event_sink::EventSink;
 use crate::file_lock::FileLockRegistry;
@@ -25,7 +25,9 @@ pub struct SyncEngine {
     sync_root_id: Option<String>,
     shutdown_token: CancellationToken,
     worker_pool: WorkerPool,
+    #[allow(dead_code)]
     file_locks: Arc<FileLockRegistry>,
+    #[allow(dead_code)]
     ensured_dirs: Arc<DashMap<String, ()>>,
     event_sink: Arc<EventSink>,
 }
@@ -265,11 +267,8 @@ impl SyncEngine {
                     // 大文件复制中事件持续到达，窗口自然延长
                     let mut all_events = vec![event];
                     let idle_timeout = std::time::Duration::from_secs(3);
-                    loop {
-                        match tokio::time::timeout(idle_timeout, local_rx.recv()).await {
-                            Ok(Some(e)) => all_events.push(e),
-                            _ => break,
-                        }
+                    while let Ok(Some(e)) = tokio::time::timeout(idle_timeout, local_rx.recv()).await {
+                        all_events.push(e)
                     }
 
                     // 按事件类型分类路径，同一路径去重（取最新事件）
@@ -621,16 +620,14 @@ impl SyncEngine {
                             match tokio::fs::read(photo_path).await {
                                 Ok(data) => {
                                     let chunk_size = session.chunk_size as usize;
-                                    let mut index = 0u32;
                                     let mut upload_ok = true;
 
-                                    for chunk in data.chunks(chunk_size) {
-                                        if let Err(e) = self.api.upload_chunk(&session.session_id, index, chunk).await {
+                                    for (index, chunk) in data.chunks(chunk_size).enumerate() {
+                                        if let Err(e) = self.api.upload_chunk(&session.session_id, index as u32, chunk).await {
                                             tracing::error!("上传分片失败 {}: {}", file_name, e);
                                             upload_ok = false;
                                             break;
                                         }
-                                        index += 1;
                                     }
 
                                     if upload_ok {

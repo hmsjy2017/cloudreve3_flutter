@@ -18,9 +18,9 @@ pub fn compute_diff(
 
     let remote_map: HashMap<String, &RemoteFileEntry> = remote_files
         .iter()
-        .filter_map(|e| {
+        .map(|e| {
             let rel = remote_relative_path(remote_root, &e.path, &e.name, e.is_dir);
-            Some((rel, e))
+            (rel, e)
         })
         .collect();
 
@@ -133,8 +133,7 @@ pub fn compute_diff(
 /// 从远程 path 字段提取相对路径
 pub fn remote_relative_path(remote_root: &str, path: &str, name: &str, is_dir: bool) -> String {
     let _ = is_dir;
-    if path.starts_with(remote_root) {
-        let rel = &path[remote_root.len()..];
+    if let Some(rel) = path.strip_prefix(remote_root) {
         let rel = rel.trim_start_matches('/');
         rel.to_string()
     } else {

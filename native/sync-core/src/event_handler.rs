@@ -87,10 +87,10 @@ impl EventHandler {
             let text = String::from_utf8_lossy(&chunk);
 
             for line in text.lines() {
-                if line.starts_with("event:") {
-                    event_type = line[6..].trim().to_string();
-                } else if line.starts_with("data:") {
-                    data_buffer = line[5..].trim().to_string();
+                if let Some(stripped) = line.strip_prefix("event:") {
+                    event_type = stripped.trim().to_string();
+                } else if let Some(stripped) = line.strip_prefix("data:") {
+                    data_buffer = stripped.trim().to_string();
                 } else if line.is_empty() && !data_buffer.is_empty() {
                     // 空行表示事件结束
                     if event_type == "event" {
@@ -101,7 +101,7 @@ impl EventHandler {
                                         // 需要获取文件详情
                                         Some(RemoteFileEvent::Modified(RemoteFileEntry {
                                             uri: ev.from.clone(),
-                                            name: ev.from.split('/').last()
+                                            name: ev.from.split('/').next_back()
                                                 .unwrap_or("").to_string(),
                                             size: 0,
                                             mtime_ms: 0,
@@ -115,7 +115,7 @@ impl EventHandler {
                                     "delete" => {
                                         Some(RemoteFileEvent::Deleted {
                                             uri: ev.from.clone(),
-                                            name: ev.from.split('/').last()
+                                            name: ev.from.split('/').next_back()
                                                 .unwrap_or("").to_string(),
                                         })
                                     }
@@ -152,6 +152,7 @@ struct SseFileEvent {
     file_id: String,
     from: String,
     #[serde(default)]
+    #[allow(dead_code)]
     to: String,
 }
 

@@ -4,7 +4,7 @@ use rusqlite::Connection;
 use std::path::Path;
 use tokio::sync::Mutex;
 
-use crate::errors::{Result, SyncError};
+use crate::errors::Result;
 use crate::models::*;
 
 pub struct SyncDb {
@@ -36,7 +36,7 @@ impl SyncDb {
             std::fs::create_dir_all(parent)?;
         }
 
-        let mut write_conn = Connection::open(db_path)?;
+        let write_conn = Connection::open(db_path)?;
         write_conn.execute_batch(
             "PRAGMA journal_mode=WAL;
              PRAGMA busy_timeout=5000;
@@ -516,7 +516,7 @@ impl SyncDb {
                  FROM sync_task WHERE status IN ('pending', 'running')
                  ORDER BY created_at DESC"
             )?;
-            let tasks = stmt.query_map([], |row| sync_task_from_row(row))?
+            let tasks = stmt.query_map([], sync_task_from_row)?
                 .filter_map(|t| t.ok()).collect();
             Ok(tasks)
         }).await??;
@@ -531,7 +531,7 @@ impl SyncDb {
                 "SELECT id, trigger, total_count, completed_count, failed_count, status, created_at, updated_at, finished_at
                  FROM sync_task ORDER BY created_at DESC LIMIT ?1"
             )?;
-            let tasks = stmt.query_map(rusqlite::params![limit], |row| sync_task_from_row(row))?
+            let tasks = stmt.query_map(rusqlite::params![limit], sync_task_from_row)?
                 .filter_map(|t| t.ok()).collect();
             Ok(tasks)
         }).await??;
@@ -578,7 +578,7 @@ impl SyncDb {
                 "SELECT id, task_id, relative_path, action_type, status, file_size, error_message, created_at, updated_at
                  FROM sync_task_item WHERE task_id = ?1 ORDER BY id"
             )?;
-            let items = stmt.query_map(rusqlite::params![task_id], |row| sync_task_item_from_row(row))?
+            let items = stmt.query_map(rusqlite::params![task_id], sync_task_item_from_row)?
                 .filter_map(|i| i.ok()).collect();
             Ok(items)
         }).await??;
@@ -619,7 +619,7 @@ impl SyncDb {
 
             let param_refs: Vec<&dyn rusqlite::types::ToSql> = params.iter().map(|p| p.as_ref()).collect();
             let mut stmt = conn.prepare(&sql)?;
-            let items = stmt.query_map(param_refs.as_slice(), |row| sync_task_item_from_row(row))?
+            let items = stmt.query_map(param_refs.as_slice(), sync_task_item_from_row)?
                 .filter_map(|i| i.ok()).collect();
             Ok(items)
         }).await??;
@@ -706,7 +706,7 @@ fn sync_task_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<SyncTask> {
         total_count: row.get(2)?,
         completed_count: row.get(3)?,
         failed_count: row.get(4)?,
-        status: WorkerStatus::from_str(&status_str),
+        status: status_str.parse::<WorkerStatus>().unwrap_or(WorkerStatus::Pending),
         created_at: row.get(6)?,
         updated_at: row.get(7)?,
         finished_at: row.get(8)?,
@@ -720,8 +720,8 @@ fn sync_task_item_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<SyncTask
         id: row.get(0)?,
         task_id: row.get(1)?,
         relative_path: row.get(2)?,
-        action_type: TaskActionType::from_str(&action_str),
-        status: TaskItemStatus::from_str(&status_str),
+        action_type: action_str.parse::<TaskActionType>().unwrap_or(TaskActionType::Upload),
+        status: status_str.parse::<TaskItemStatus>().unwrap_or(TaskItemStatus::Pending),
         file_size: row.get(5)?,
         error_message: row.get(6)?,
         created_at: row.get(7)?,

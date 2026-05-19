@@ -77,3 +77,7 @@ default = []
 windows-cfapi = ["sync-windows", "windows"]
 linux-notify = ["sync-linux"]
 android-media = ["sync-android", "jni"]
+event_sink_enabled = []
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(frb_expand)'] }

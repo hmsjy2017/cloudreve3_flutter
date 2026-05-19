@@ -33,6 +33,12 @@ pub enum PlatformCallbackEvent {
     },
 }
 
+impl Default for WindowsAdapter {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl WindowsAdapter {
     pub fn new() -> Self {
         Self {

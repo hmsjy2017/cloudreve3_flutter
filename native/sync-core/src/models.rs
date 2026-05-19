@@ -372,14 +372,19 @@ impl WorkerStatus {
         }
     }
 
-    pub fn from_str(s: &str) -> Self {
+}
+
+impl std::str::FromStr for WorkerStatus {
+    type Err = ();
+
+    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
         match s {
-            "pending" => WorkerStatus::Pending,
-            "running" => WorkerStatus::Running,
-            "completed" => WorkerStatus::Completed,
-            "failed" => WorkerStatus::Failed,
-            "cancelled" => WorkerStatus::Cancelled,
-            _ => WorkerStatus::Pending,
+            "pending" => Ok(WorkerStatus::Pending),
+            "running" => Ok(WorkerStatus::Running),
+            "completed" => Ok(WorkerStatus::Completed),
+            "failed" => Ok(WorkerStatus::Failed),
+            "cancelled" => Ok(WorkerStatus::Cancelled),
+            _ => Err(()),
         }
     }
 }
@@ -405,14 +410,19 @@ impl TaskItemStatus {
         }
     }
 
-    pub fn from_str(s: &str) -> Self {
+}
+
+impl std::str::FromStr for TaskItemStatus {
+    type Err = ();
+
+    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
         match s {
-            "pending" => TaskItemStatus::Pending,
-            "running" => TaskItemStatus::Running,
-            "completed" => TaskItemStatus::Completed,
-            "failed" => TaskItemStatus::Failed,
-            "skipped" => TaskItemStatus::Skipped,
-            _ => TaskItemStatus::Pending,
+            "pending" => Ok(TaskItemStatus::Pending),
+            "running" => Ok(TaskItemStatus::Running),
+            "completed" => Ok(TaskItemStatus::Completed),
+            "failed" => Ok(TaskItemStatus::Failed),
+            "skipped" => Ok(TaskItemStatus::Skipped),
+            _ => Err(()),
         }
     }
 }
@@ -444,17 +454,22 @@ impl TaskActionType {
         }
     }
 
-    pub fn from_str(s: &str) -> Self {
+}
+
+impl std::str::FromStr for TaskActionType {
+    type Err = ();
+
+    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
         match s {
-            "upload" => TaskActionType::Upload,
-            "download" => TaskActionType::Download,
-            "delete_local" => TaskActionType::DeleteLocal,
-            "delete_remote" => TaskActionType::DeleteRemote,
-            "rename" => TaskActionType::Rename,
-            "mkdir_remote" => TaskActionType::MkdirRemote,
-            "mkdir_local" => TaskActionType::MkdirLocal,
-            "conflict_resolve" => TaskActionType::ConflictResolve,
-            _ => TaskActionType::Upload,
+            "upload" => Ok(TaskActionType::Upload),
+            "download" => Ok(TaskActionType::Download),
+            "delete_local" => Ok(TaskActionType::DeleteLocal),
+            "delete_remote" => Ok(TaskActionType::DeleteRemote),
+            "rename" => Ok(TaskActionType::Rename),
+            "mkdir_remote" => Ok(TaskActionType::MkdirRemote),
+            "mkdir_local" => Ok(TaskActionType::MkdirLocal),
+            "conflict_resolve" => Ok(TaskActionType::ConflictResolve),
+            _ => Err(()),
         }
     }
 }

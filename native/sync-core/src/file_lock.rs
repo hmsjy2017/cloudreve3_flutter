@@ -8,6 +8,12 @@ pub struct FileLockRegistry {
     locks: DashMap<String, Arc<Mutex<()>>>,
 }
 
+impl Default for FileLockRegistry {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl FileLockRegistry {
     pub fn new() -> Self {
         Self {
@@ -16,7 +22,7 @@ impl FileLockRegistry {
     }
 
     /// 阻塞等待获取文件锁，返回守卫
-    pub async fn acquire(&self, path: &str) -> FileLockGuard {
+    pub async fn acquire(&self, path: &str) -> FileLockGuard<'_> {
         let lock = self
             .locks
             .entry(path.to_string())

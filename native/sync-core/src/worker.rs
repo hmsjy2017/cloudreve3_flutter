@@ -26,6 +26,7 @@ pub struct Worker {
 }
 
 impl Worker {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         task_id: String,
         trigger: WorkerTrigger,
@@ -514,7 +515,7 @@ impl WorkerPool {
         shutdown_token: CancellationToken,
     ) -> Self {
         let cpu_count = num_cpus();
-        let max_workers = cpu_count.max(1).min(32);
+        let max_workers = cpu_count.clamp(1, 32);
         tracing::info!("WorkerPool 初始化: 最大并发 Worker 数={}", max_workers);
 
         Self {

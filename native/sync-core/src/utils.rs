@@ -102,11 +102,9 @@ pub fn cleanup_temp_files<'a>(dir: &'a Path) -> std::pin::Pin<Box<dyn std::futur
             let path = entry.path();
             if path.is_dir() {
                 cleaned += cleanup_temp_files(&path).await;
-            } else if is_temp_file(&path) {
-                if tokio::fs::remove_file(&path).await.is_ok() {
-                    tracing::debug!("清理临时文件: {}", path.display());
-                    cleaned += 1;
-                }
+            } else if is_temp_file(&path) && tokio::fs::remove_file(&path).await.is_ok() {
+                tracing::debug!("清理临时文件: {}", path.display());
+                cleaned += 1;
             }
         }
 

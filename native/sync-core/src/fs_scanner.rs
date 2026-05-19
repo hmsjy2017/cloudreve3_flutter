@@ -1,7 +1,6 @@
 use crate::errors::Result;
 use crate::models::LocalFileEntry;
 use crate::utils::quick_hash;
-use std::collections::HashSet;
 use std::path::Path;
 use walkdir::WalkDir;
 
@@ -19,6 +18,12 @@ pub const SKIP_EXTENSIONS: &[&str] = &[
 ];
 
 pub struct FsScanner;
+
+impl Default for FsScanner {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 impl FsScanner {
     pub fn new() -> Self {

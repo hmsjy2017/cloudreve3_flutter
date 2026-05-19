@@ -32,10 +32,11 @@ impl ConflictResolver {
         )
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn resolve_with_strategy(
         &self,
         strategy: &ConflictStrategy,
-        conflict_type: ConflictType,
+        _conflict_type: ConflictType,
         local_mtime: i64,
         remote_mtime: i64,
         local_size: u64,

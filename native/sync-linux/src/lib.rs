@@ -1,16 +1,20 @@
-/// Linux 平台适配层
-///
-/// 提供文件系统监听 (notify/inotify) 用于：
-/// - 实时检测本地文件变更
-/// - inotify 限制检测与配置
-/// - 混合模式（事件+轮询）切换
+//! Linux 平台适配层
+//!
+//! 提供文件系统监听 (notify/inotify) 用于：
+//! - 实时检测本地文件变更
+//! - inotify 限制检测与配置
+//! - 混合模式（事件+轮询）切换
 
-use std::path::{Path, PathBuf};
-use std::sync::mpsc;
-use std::time::Duration;
+use std::path::Path;
 
 pub struct LinuxAdapter {
     watcher: Option<notify::RecommendedWatcher>,
+}
+
+impl Default for LinuxAdapter {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl LinuxAdapter {
@@ -19,7 +23,7 @@ impl LinuxAdapter {
     }
 
     /// 启动文件监听 (Phase 3)
-    pub fn start_watching(&mut self, root: &Path) -> anyhow::Result<()> {
+    pub fn start_watching(&mut self, _root: &Path) -> anyhow::Result<()> {
         // Phase 3: 实现 notify 监听
         Ok(())
     }

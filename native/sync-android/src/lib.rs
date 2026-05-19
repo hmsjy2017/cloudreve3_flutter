@@ -1,11 +1,11 @@
-/// Android 平台适配层
-///
-/// 提供相册同步辅助功能：
-/// - 文件类型过滤（仅图片/视频）
-/// - 路径验证
-///
-/// 实际的扫描由 Dart 侧通过平台通道完成，
-/// 上传和状态管理由 sync-core 的 sync_album 处理
+//! Android 平台适配层
+//!
+//! 提供相册同步辅助功能：
+//! - 文件类型过滤（仅图片/视频）
+//! - 路径验证
+//!
+//! 实际的扫描由 Dart 侧通过平台通道完成，
+//! 上传和状态管理由 sync-core 的 sync_album 处理
 
 use std::path::Path;
 
@@ -20,6 +20,12 @@ const VIDEO_EXTENSIONS: &[&str] = &[
 ];
 
 pub struct AndroidAdapter;
+
+impl Default for AndroidAdapter {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 impl AndroidAdapter {
     pub fn new() -> Self {

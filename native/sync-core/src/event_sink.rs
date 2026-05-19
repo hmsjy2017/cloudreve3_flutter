@@ -13,6 +13,12 @@ pub struct EventSink {
     available: std::sync::atomic::AtomicBool,
 }
 
+impl Default for EventSink {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl EventSink {
     pub fn new() -> Self {
         Self {

@@ -3,10 +3,10 @@ use crate::errors::{Result, SyncError};
 use crate::file_lock::FileLockRegistry;
 use crate::models::*;
 use crate::sync_db::SyncDb;
-use std::sync::Arc;
 use tokio::sync::Semaphore;
 
 /// 下载单个文件（含重试），受并发信号量控制
+#[allow(clippy::too_many_arguments)]
 pub async fn download_file(
     task_id: &str,
     action: &SyncAction,
@@ -91,7 +91,7 @@ pub async fn download_file(
 
                 if remote.mtime_ms > 0 {
                     let mtime = std::time::UNIX_EPOCH + std::time::Duration::from_millis(remote.mtime_ms as u64);
-                    let _ = filetime::set_file_mtime(&local_path, filetime::FileTime::from_system_time(mtime.into()));
+                    let _ = filetime::set_file_mtime(&local_path, filetime::FileTime::from_system_time(mtime));
                 }
 
                 let local_hash = crate::utils::quick_hash(&local_path, remote.size).await.unwrap_or_default();

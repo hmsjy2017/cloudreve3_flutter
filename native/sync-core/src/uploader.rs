@@ -5,10 +5,10 @@ use crate::models::*;
 use crate::sync_db::SyncDb;
 use dashmap::DashMap;
 use std::path::Path;
-use std::sync::Arc;
 use tokio::sync::Semaphore;
 
 /// 上传单个文件（含重试），受并发信号量控制
+#[allow(clippy::too_many_arguments)]
 pub async fn upload_file(
     task_id: &str,
     action: &SyncAction,
@@ -93,12 +93,10 @@ pub async fn upload_file(
 
     tracing::info!("[{}] chunk_size={}bytes, 开始上传: {} ({}bytes)", task_id, chunk_size, action.relative_path, local.size);
 
-    let mut index = 0u32;
-
-    for chunk in data.chunks(chunk_size) {
+    for (index, chunk) in data.chunks(chunk_size).enumerate() {
         let mut chunk_retries = 0u32;
         loop {
-            match api.upload_chunk(&session.session_id, index, chunk).await {
+            match api.upload_chunk(&session.session_id, index as u32, chunk).await {
                 Ok(_) => break,
                 Err(SyncError::Auth(_)) => return Err(SyncError::Auth("Token 过期".into())),
                 Err(e) if chunk_retries < max_retries => {
@@ -110,7 +108,6 @@ pub async fn upload_file(
                 Err(e) => return Err(e),
             }
         }
-        index += 1;
     }
 
     // 上传完成后获取远程文件信息
@@ -144,6 +141,7 @@ pub async fn upload_file(
 }
 
 /// 带重试的创建上传会话
+#[allow(clippy::too_many_arguments)]
 pub async fn retry_upload_session(
     task_id: &str,
     file_uri: &str,
