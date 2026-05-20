@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:uuid/uuid.dart';
 import '../core/constants/storage_keys.dart';
 import '../data/models/server_model.dart';
 
@@ -187,5 +188,17 @@ class StorageService {
   Future<void> clearSyncData() async {
     await remove(StorageKeys.syncConfig);
     await remove(StorageKeys.syncState);
+  }
+
+  // ===== client_id 持久化 =====
+
+  /// 获取 client_id，首次调用自动生成并持久化
+  Future<String> getOrCreateClientId() async {
+    var id = await getString(StorageKeys.clientId);
+    if (id == null || id.isEmpty) {
+      id = const Uuid().v4();
+      await setString(StorageKeys.clientId, id);
+    }
+    return id;
   }
 }

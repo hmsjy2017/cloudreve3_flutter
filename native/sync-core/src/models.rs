@@ -186,7 +186,7 @@ impl Default for TransferConfig {
             retry_base_delay_ms: 1000,
             retry_max_delay_ms: 60000,
             bandwidth_limit: None,
-            disk_space_reserve: 1024 * 1024 * 1024, // 1GB
+            disk_space_reserve: 1024 * 1024 * 1024,
         }
     }
 }
@@ -198,6 +198,7 @@ pub struct SyncSummary {
     pub uploaded: u32,
     pub downloaded: u32,
     pub conflicts: u32,
+    pub failed: u32,
     pub skipped: u32,
     pub deleted_local: u32,
     pub deleted_remote: u32,
@@ -226,6 +227,8 @@ pub enum LocalFileEvent {
     Created(Vec<PathBuf>),
     Modified(Vec<PathBuf>),
     Deleted(Vec<PathBuf>),
+    Renamed { old_paths: Vec<PathBuf>, new_paths: Vec<PathBuf> },
+    Moved { old_paths: Vec<PathBuf>, new_paths: Vec<PathBuf> },
 }
 
 impl LocalFileEvent {
@@ -234,6 +237,7 @@ impl LocalFileEvent {
             LocalFileEvent::Created(p) => p,
             LocalFileEvent::Modified(p) => p,
             LocalFileEvent::Deleted(p) => p,
+            LocalFileEvent::Renamed { .. } | LocalFileEvent::Moved { .. } => &[],
         }
     }
 }
@@ -245,6 +249,7 @@ pub enum RemoteFileEvent {
     Created(RemoteFileEntry),
     Modified(RemoteFileEntry),
     Deleted { uri: String, name: String },
+    Renamed { old_uri: String, new_entry: RemoteFileEntry },
     Moved { old_uri: String, new_entry: RemoteFileEntry },
 }
 
@@ -283,12 +288,32 @@ pub struct Pagination {
 
 // ===== 同步计划 =====
 
+/// 重命名操作（本地触发 → 远程重命名，同目录下改文件名）
+#[derive(Debug, Clone)]
+pub struct RenameAction {
+    pub old_relative_path: String,
+    pub new_relative_path: String,
+    pub remote_uri: String,
+    pub new_name: String,
+}
+
+/// 移动操作（本地触发 → 远程移动，跨目录）
+#[derive(Debug, Clone)]
+pub struct MoveAction {
+    pub old_relative_path: String,
+    pub new_relative_path: String,
+    pub remote_uri: String,
+    pub dst_remote_dir_uri: String,
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct SyncPlan {
     pub uploads: Vec<SyncAction>,
     pub downloads: Vec<SyncAction>,
     pub delete_local: Vec<SyncAction>,
     pub delete_remote: Vec<SyncAction>,
+    pub rename_remote: Vec<RenameAction>,
+    pub move_remote: Vec<MoveAction>,
     pub conflicts: Vec<SyncConflict>,
     pub mkdirs_local: Vec<String>,
     pub mkdirs_remote: Vec<String>,
@@ -319,6 +344,8 @@ impl SyncPlan {
             + self.downloads.len() as u64
             + self.delete_local.len() as u64
             + self.delete_remote.len() as u64
+            + self.rename_remote.len() as u64
+            + self.move_remote.len() as u64
     }
 }
 
@@ -437,6 +464,7 @@ pub enum TaskActionType {
     DeleteLocal,
     DeleteRemote,
     Rename,
+    Move,
     MkdirRemote,
     MkdirLocal,
     ConflictResolve,
@@ -450,6 +478,7 @@ impl TaskActionType {
             TaskActionType::DeleteLocal => "delete_local",
             TaskActionType::DeleteRemote => "delete_remote",
             TaskActionType::Rename => "rename",
+            TaskActionType::Move => "move",
             TaskActionType::MkdirRemote => "mkdir_remote",
             TaskActionType::MkdirLocal => "mkdir_local",
             TaskActionType::ConflictResolve => "conflict_resolve",
@@ -468,6 +497,7 @@ impl std::str::FromStr for TaskActionType {
             "delete_local" => Ok(TaskActionType::DeleteLocal),
             "delete_remote" => Ok(TaskActionType::DeleteRemote),
             "rename" => Ok(TaskActionType::Rename),
+            "move" => Ok(TaskActionType::Move),
             "mkdir_remote" => Ok(TaskActionType::MkdirRemote),
             "mkdir_local" => Ok(TaskActionType::MkdirLocal),
             "conflict_resolve" => Ok(TaskActionType::ConflictResolve),

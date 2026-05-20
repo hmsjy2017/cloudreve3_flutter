@@ -54,15 +54,16 @@ final BigInt bandwidthLimitKbps;
 final List<String> excludedPaths;
 final List<String> selectiveDirs;
 final String dataDir;
+	final String clientId;
 
-                const SyncConfigFfi({required this.baseUrl ,required this.accessToken ,required this.refreshToken ,required this.localRoot ,required this.remoteRoot ,required this.syncMode ,required this.conflictStrategy ,required this.maxConcurrentTransfers ,required this.bandwidthLimitKbps ,required this.excludedPaths ,required this.selectiveDirs ,required this.dataDir ,});
+                const SyncConfigFfi({required this.baseUrl ,required this.accessToken ,required this.refreshToken ,required this.localRoot ,required this.remoteRoot ,required this.syncMode ,required this.conflictStrategy ,required this.maxConcurrentTransfers ,required this.bandwidthLimitKbps ,required this.excludedPaths ,required this.selectiveDirs ,required this.dataDir ,required this.clientId ,});
 
                 
                 
 
                 
         @override
-        int get hashCode => baseUrl.hashCode^accessToken.hashCode^refreshToken.hashCode^localRoot.hashCode^remoteRoot.hashCode^syncMode.hashCode^conflictStrategy.hashCode^maxConcurrentTransfers.hashCode^bandwidthLimitKbps.hashCode^excludedPaths.hashCode^selectiveDirs.hashCode^dataDir.hashCode;
+        int get hashCode => baseUrl.hashCode^accessToken.hashCode^refreshToken.hashCode^localRoot.hashCode^remoteRoot.hashCode^syncMode.hashCode^conflictStrategy.hashCode^maxConcurrentTransfers.hashCode^bandwidthLimitKbps.hashCode^excludedPaths.hashCode^selectiveDirs.hashCode^dataDir.hashCode^clientId.hashCode;
         
 
                 
@@ -71,7 +72,7 @@ final String dataDir;
             identical(this, other) ||
             other is SyncConfigFfi &&
                 runtimeType == other.runtimeType
-                && baseUrl == other.baseUrl&& accessToken == other.accessToken&& refreshToken == other.refreshToken&& localRoot == other.localRoot&& remoteRoot == other.remoteRoot&& syncMode == other.syncMode&& conflictStrategy == other.conflictStrategy&& maxConcurrentTransfers == other.maxConcurrentTransfers&& bandwidthLimitKbps == other.bandwidthLimitKbps&& excludedPaths == other.excludedPaths&& selectiveDirs == other.selectiveDirs&& dataDir == other.dataDir;
+                && baseUrl == other.baseUrl&& accessToken == other.accessToken&& refreshToken == other.refreshToken&& localRoot == other.localRoot&& remoteRoot == other.remoteRoot&& syncMode == other.syncMode&& conflictStrategy == other.conflictStrategy&& maxConcurrentTransfers == other.maxConcurrentTransfers&& bandwidthLimitKbps == other.bandwidthLimitKbps&& excludedPaths == other.excludedPaths&& selectiveDirs == other.selectiveDirs&& dataDir == other.dataDir&& clientId == other.clientId;
         
             }
 
@@ -151,19 +152,20 @@ class SyncSummaryFfi  {
                 final int uploaded;
 final int downloaded;
 final int conflicts;
+final int failed;
 final int skipped;
 final int deletedLocal;
 final int deletedRemote;
 final BigInt durationMs;
 
-                const SyncSummaryFfi({required this.uploaded ,required this.downloaded ,required this.conflicts ,required this.skipped ,required this.deletedLocal ,required this.deletedRemote ,required this.durationMs ,});
+                const SyncSummaryFfi({required this.uploaded ,required this.downloaded ,required this.conflicts ,required this.failed ,required this.skipped ,required this.deletedLocal ,required this.deletedRemote ,required this.durationMs ,});
 
                 
                 
 
                 
         @override
-        int get hashCode => uploaded.hashCode^downloaded.hashCode^conflicts.hashCode^skipped.hashCode^deletedLocal.hashCode^deletedRemote.hashCode^durationMs.hashCode;
+        int get hashCode => uploaded.hashCode^downloaded.hashCode^conflicts.hashCode^failed.hashCode^skipped.hashCode^deletedLocal.hashCode^deletedRemote.hashCode^durationMs.hashCode;
         
 
                 
@@ -172,7 +174,7 @@ final BigInt durationMs;
             identical(this, other) ||
             other is SyncSummaryFfi &&
                 runtimeType == other.runtimeType
-                && uploaded == other.uploaded&& downloaded == other.downloaded&& conflicts == other.conflicts&& skipped == other.skipped&& deletedLocal == other.deletedLocal&& deletedRemote == other.deletedRemote&& durationMs == other.durationMs;
+                && uploaded == other.uploaded&& downloaded == other.downloaded&& conflicts == other.conflicts&& failed == other.failed&& skipped == other.skipped&& deletedLocal == other.deletedLocal&& deletedRemote == other.deletedRemote&& durationMs == other.durationMs;
         
             }
 

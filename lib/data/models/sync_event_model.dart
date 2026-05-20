@@ -54,6 +54,7 @@ class SyncSummaryModel {
   final int uploaded;
   final int downloaded;
   final int conflicts;
+  final int failed;
   final int skipped;
   final int deletedLocal;
   final int deletedRemote;
@@ -63,6 +64,7 @@ class SyncSummaryModel {
     this.uploaded = 0,
     this.downloaded = 0,
     this.conflicts = 0,
+    this.failed = 0,
     this.skipped = 0,
     this.deletedLocal = 0,
     this.deletedRemote = 0,
@@ -74,6 +76,7 @@ class SyncSummaryModel {
       uploaded: f.uploaded,
       downloaded: f.downloaded,
       conflicts: f.conflicts,
+      failed: f.failed,
       skipped: f.skipped,
       deletedLocal: f.deletedLocal,
       deletedRemote: f.deletedRemote,

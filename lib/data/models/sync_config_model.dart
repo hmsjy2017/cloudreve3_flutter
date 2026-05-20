@@ -13,6 +13,7 @@ class SyncConfigModel {
   final List<String> excludedPaths;
   final List<String> selectiveDirs;
   final String dataDir;
+  final String clientId;
 
   const SyncConfigModel({
     required this.baseUrl,
@@ -20,6 +21,7 @@ class SyncConfigModel {
     required this.refreshToken,
     required this.localRoot,
     required this.dataDir,
+    required this.clientId,
     this.remoteRoot = 'cloudreve://my',
     this.syncMode = 'full',
     this.conflictStrategy = 'keep_both',
@@ -42,6 +44,7 @@ class SyncConfigModel {
     List<String>? excludedPaths,
     List<String>? selectiveDirs,
     String? dataDir,
+    String? clientId,
   }) {
     return SyncConfigModel(
       baseUrl: baseUrl ?? this.baseUrl,
@@ -57,6 +60,7 @@ class SyncConfigModel {
       excludedPaths: excludedPaths ?? this.excludedPaths,
       selectiveDirs: selectiveDirs ?? this.selectiveDirs,
       dataDir: dataDir ?? this.dataDir,
+      clientId: clientId ?? this.clientId,
     );
   }
 
@@ -74,6 +78,7 @@ class SyncConfigModel {
       excludedPaths: excludedPaths,
       selectiveDirs: selectiveDirs,
       dataDir: dataDir,
+      clientId: clientId,
     );
   }
 
@@ -91,6 +96,7 @@ class SyncConfigModel {
       excludedPaths: ffi.excludedPaths,
       selectiveDirs: ffi.selectiveDirs,
       dataDir: ffi.dataDir,
+      clientId: ffi.clientId,
     );
   }
 }

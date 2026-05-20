@@ -62,7 +62,7 @@ fn config_from_ffi(ffi: SyncConfigFfi) -> crate::models::SyncConfig {
         excluded_paths: ffi.excluded_paths,
         selective_dirs: ffi.selective_dirs,
         data_dir: PathBuf::from(&ffi.data_dir),
-        client_id: uuid::Uuid::new_v4().to_string(),
+        client_id: ffi.client_id,
     }
 }
 
@@ -97,6 +97,7 @@ fn config_to_ffi(c: &crate::models::SyncConfig) -> SyncConfigFfi {
         excluded_paths: c.excluded_paths.clone(),
         selective_dirs: c.selective_dirs.clone(),
         data_dir: c.data_dir.to_string_lossy().to_string(),
+        client_id: c.client_id.clone(),
     }
 }
 
@@ -135,6 +136,7 @@ fn summary_to_ffi(s: crate::models::SyncSummary) -> SyncSummaryFfi {
         uploaded: s.uploaded,
         downloaded: s.downloaded,
         conflicts: s.conflicts,
+        failed: s.failed,
         skipped: s.skipped,
         deleted_local: s.deleted_local,
         deleted_remote: s.deleted_remote,

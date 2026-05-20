@@ -31,4 +31,5 @@ class StorageKeys {
   // 同步相关
   static const String syncConfig = 'sync_config';
   static const String syncState = 'sync_state';
+  static const String clientId = 'client_id';
 }

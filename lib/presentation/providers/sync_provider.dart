@@ -74,6 +74,7 @@ class SyncProvider extends ChangeNotifier {
           maxConcurrentTransfers: configMap['maxConcurrentTransfers'] as int? ?? 3,
           bandwidthLimitKbps: configMap['bandwidthLimitKbps'] as int? ?? 0,
           dataDir: configMap['dataDir'] as String? ?? '',
+          clientId: configMap['clientId'] as String? ?? '',
         );
         _log.i('恢复同步配置: 模式=${_persistedConfig!.syncMode}, 冲突=${_persistedConfig!.conflictStrategy}, 并发=${_persistedConfig!.maxConcurrentTransfers}, 带宽=${_persistedConfig!.bandwidthLimitKbps}kbps');
       } catch (e) {
@@ -101,6 +102,7 @@ class SyncProvider extends ChangeNotifier {
       'maxConcurrentTransfers': config.maxConcurrentTransfers,
       'bandwidthLimitKbps': config.bandwidthLimitKbps,
       'dataDir': config.dataDir,
+      'clientId': config.clientId,
     });
   }
 
@@ -127,12 +129,16 @@ class SyncProvider extends ChangeNotifier {
     _currentFile = null;
     notifyListeners();
 
+    // 确保 clientId 已注入（Dart 生成、持久化、全层共享）
+    final clientId = await StorageService.instance.getOrCreateClientId();
+    final configWithClientId = config.copyWith(clientId: clientId);
+
     // 持久化配置和状态
-    await _persistConfig(config);
+    await _persistConfig(configWithClientId);
     await _persistState(SyncState.initializing);
 
     try {
-      await SyncService.instance.init(config);
+      await SyncService.instance.init(configWithClientId);
       _subscribeEvents();
 
       _state = SyncState.initialSync;

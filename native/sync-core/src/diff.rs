@@ -133,12 +133,16 @@ pub fn compute_diff(
 /// 从远程 path 字段提取相对路径
 pub fn remote_relative_path(remote_root: &str, path: &str, name: &str, is_dir: bool) -> String {
     let _ = is_dir;
+    // 1. 尝试匹配完整 URI 前缀（remote_root = cloudreve://my/example）
     if let Some(rel) = path.strip_prefix(remote_root) {
-        let rel = rel.trim_start_matches('/');
-        rel.to_string()
-    } else {
-        name.to_string()
+        return rel.trim_start_matches('/').to_string();
     }
+    // 2. SSE 的 path 是相对路径（如 /Readest/Books/file.txt），直接 trim 前导 /
+    if path.starts_with('/') {
+        return path.trim_start_matches('/').to_string();
+    }
+    // 3. 回退：使用文件名
+    name.to_string()
 }
 
 /// 从字符串解析 SyncFileStatus

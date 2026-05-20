@@ -62,12 +62,14 @@ impl Worker {
         let trigger_str = self.trigger.as_str();
 
         tracing::info!(
-            "[{}] Worker启动: trigger={}, 上传={}, 下载={}, 删本地={}, 删远程={}, 冲突={}",
+            "[{}] Worker启动: trigger={}, 上传={}, 下载={}, 删本地={}, 删远程={}, 重命名={}, 移动={}, 冲突={}",
             tid, trigger_str,
             self.plan.uploads.len(),
             self.plan.downloads.len(),
             self.plan.delete_local.len(),
             self.plan.delete_remote.len(),
+            self.plan.rename_remote.len(),
+            self.plan.move_remote.len(),
             self.plan.conflicts.len(),
         );
 
@@ -97,6 +99,46 @@ impl Worker {
             let local_path = self.config.local_root.join(dir_path);
             if let Err(e) = tokio::fs::create_dir_all(&local_path).await {
                 tracing::warn!("[{}] 创建本地目录失败 {}: {}", tid, dir_path, e);
+            }
+        }
+
+        // 2.1 执行远程重命名（本地触发）
+        for rename in &self.plan.rename_remote {
+            if self.shutdown_token.is_cancelled() { break; }
+            match self.api.rename_file(&rename.remote_uri, &rename.new_name).await {
+                Ok(_) => {
+                    tracing::info!("[{}] 远程重命名: {} -> {}", tid, rename.old_relative_path, rename.new_relative_path);
+                    let new_remote_uri = {
+                        let uri = &rename.remote_uri;
+                        let last_slash = uri.trim_end_matches('/').rfind('/').unwrap_or(0);
+                        format!("{}/{}", &uri[..last_slash], rename.new_name)
+                    };
+                    let _ = self.db.update_file_mapping_path(
+                        &root_id, &rename.old_relative_path, &rename.new_relative_path, &new_remote_uri,
+                    ).await;
+                }
+                Err(e) => {
+                    tracing::error!("[{}] 远程重命名失败: {} -> {}: {}", tid, rename.old_relative_path, rename.new_relative_path, e);
+                    summary.failed += 1;
+                }
+            }
+        }
+
+        // 2.2 执行远程移动（本地触发）
+        for mov in &self.plan.move_remote {
+            if self.shutdown_token.is_cancelled() { break; }
+            // copy=false 表示移动
+            match self.api.move_files(&[&mov.remote_uri], &mov.dst_remote_dir_uri, false).await {
+                Ok(_) => {
+                    tracing::info!("[{}] 远程移动: {} -> {}", tid, mov.old_relative_path, mov.new_relative_path);
+                    let _ = self.db.update_file_mapping_path(
+                        &root_id, &mov.old_relative_path, &mov.new_relative_path, &mov.dst_remote_dir_uri,
+                    ).await;
+                }
+                Err(e) => {
+                    tracing::error!("[{}] 远程移动失败: {} -> {}: {}", tid, mov.old_relative_path, mov.new_relative_path, e);
+                    summary.failed += 1;
+                }
             }
         }
 
@@ -372,12 +414,12 @@ impl Worker {
                 }
                 Ok(Err(e)) => {
                     tracing::error!("[{}] 上传失败: {}", tid, e);
-                    summary.conflicts += 1;
+                    summary.failed += 1;
                     let _ = self.db.increment_task_failed(&tid).await;
                 }
                 Err(e) => {
                     tracing::error!("[{}] 上传任务异常: {}", tid, e);
-                    summary.conflicts += 1;
+                    summary.failed += 1;
                     let _ = self.db.increment_task_failed(&tid).await;
                 }
             }
@@ -413,12 +455,12 @@ impl Worker {
                 }
                 Ok(Err(e)) => {
                     tracing::error!("[{}] 下载失败: {}", tid, e);
-                    summary.conflicts += 1;
+                    summary.failed += 1;
                     let _ = self.db.increment_task_failed(&tid).await;
                 }
                 Err(e) => {
                     tracing::error!("[{}] 下载任务异常: {}", tid, e);
-                    summary.conflicts += 1;
+                    summary.failed += 1;
                     let _ = self.db.increment_task_failed(&tid).await;
                 }
             }
@@ -485,7 +527,7 @@ impl Worker {
             task_id: tid.clone(),
             uploaded: summary.uploaded,
             downloaded: summary.downloaded,
-            failed: summary.conflicts,
+            failed: summary.failed,
             duration_ms,
         }).await;
 
@@ -546,6 +588,8 @@ impl WorkerPool {
             + plan.downloads.len() as u32
             + plan.delete_local.len() as u32
             + plan.delete_remote.len() as u32
+            + plan.rename_remote.len() as u32
+            + plan.move_remote.len() as u32
             + plan.conflicts.len() as u32;
 
         let task = SyncTask {
@@ -611,6 +655,8 @@ impl WorkerPool {
             + plan.downloads.len() as u32
             + plan.delete_local.len() as u32
             + plan.delete_remote.len() as u32
+            + plan.rename_remote.len() as u32
+            + plan.move_remote.len() as u32
             + plan.conflicts.len() as u32;
 
         let task = SyncTask {
@@ -733,6 +779,34 @@ impl WorkerPool {
                 task_id: task_id.to_string(),
                 relative_path: action.relative_path.clone(),
                 action_type: TaskActionType::DeleteRemote,
+                status: TaskItemStatus::Pending,
+                file_size: 0,
+                error_message: None,
+                created_at: now.to_string(),
+                updated_at: now.to_string(),
+            };
+            self.db.create_sync_task_item(&item).await?;
+        }
+        for rename in &plan.rename_remote {
+            let item = SyncTaskItem {
+                id: 0,
+                task_id: task_id.to_string(),
+                relative_path: format!("{} -> {}", rename.old_relative_path, rename.new_relative_path),
+                action_type: TaskActionType::Rename,
+                status: TaskItemStatus::Pending,
+                file_size: 0,
+                error_message: None,
+                created_at: now.to_string(),
+                updated_at: now.to_string(),
+            };
+            self.db.create_sync_task_item(&item).await?;
+        }
+        for mov in &plan.move_remote {
+            let item = SyncTaskItem {
+                id: 0,
+                task_id: task_id.to_string(),
+                relative_path: format!("{} -> {}", mov.old_relative_path, mov.new_relative_path),
+                action_type: TaskActionType::Move,
                 status: TaskItemStatus::Pending,
                 file_size: 0,
                 error_message: None,

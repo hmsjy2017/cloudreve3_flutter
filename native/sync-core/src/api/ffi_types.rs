@@ -24,6 +24,7 @@ pub struct SyncConfigFfi {
     pub excluded_paths: Vec<String>,
     pub selective_dirs: Vec<String>,
     pub data_dir: String,
+    pub client_id: String,
 }
 
 /// 同步状态快照
@@ -46,6 +47,7 @@ pub struct SyncSummaryFfi {
     pub uploaded: u32,
     pub downloaded: u32,
     pub conflicts: u32,
+    pub failed: u32,
     pub skipped: u32,
     pub deleted_local: u32,
     pub deleted_remote: u32,

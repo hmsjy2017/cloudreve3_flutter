@@ -90,28 +90,30 @@ class _SyncSettingsPageState extends State<SyncSettingsPage> {
             _buildSection(
               title: '同步模式',
               children: [
-                RadioListTile<String>(
-                  title: const Text('全量同步'),
-                  subtitle: const Text('双向同步所有文件'),
-                  value: 'full',
+                RadioGroup<String>(
                   groupValue: _syncMode,
-                  onChanged: (v) { setState(() => _syncMode = v!); _pushConfigIfActive(); },
-                ),
-                RadioListTile<String>(
-                  title: const Text('选择性同步'),
-                  subtitle: const Text('仅同步指定目录'),
-                  value: 'selective',
-                  groupValue: _syncMode,
-                  onChanged: (v) { setState(() => _syncMode = v!); _pushConfigIfActive(); },
-                ),
-                if (Platform.isAndroid)
-                  RadioListTile<String>(
-                    title: const Text('相册同步'),
-                    subtitle: const Text('自动备份手机照片到云端'),
-                    value: 'album',
-                    groupValue: _syncMode,
-                    onChanged: (v) { setState(() => _syncMode = v!); _pushConfigIfActive(); },
+                  onChanged: (v) { if (v != null) { setState(() => _syncMode = v); _pushConfigIfActive(); } },
+                  child: Column(
+                    children: [
+                      RadioListTile<String>(
+                        title: const Text('全量同步'),
+                        subtitle: const Text('双向同步所有文件'),
+                        value: 'full',
+                      ),
+                      RadioListTile<String>(
+                        title: const Text('选择性同步'),
+                        subtitle: const Text('仅同步指定目录'),
+                        value: 'selective',
+                      ),
+                      if (Platform.isAndroid)
+                        RadioListTile<String>(
+                          title: const Text('相册同步'),
+                          subtitle: const Text('自动备份手机照片到云端'),
+                          value: 'album',
+                        ),
+                    ],
                   ),
+                ),
               ],
             ),
             _buildSection(
@@ -267,6 +269,7 @@ class _SyncSettingsPageState extends State<SyncSettingsPage> {
                 _summaryChip('上传', sync.lastSummary!.uploaded),
                 _summaryChip('下载', sync.lastSummary!.downloaded),
                 _summaryChip('冲突', sync.lastSummary!.conflicts),
+                _summaryChip('失败', sync.lastSummary!.failed),
                 _summaryChip('跳过', sync.lastSummary!.skipped),
                 _summaryChip('删本地', sync.lastSummary!.deletedLocal),
                 _summaryChip('删远程', sync.lastSummary!.deletedRemote),
@@ -414,10 +417,11 @@ class _SyncSettingsPageState extends State<SyncSettingsPage> {
                 onPressed: () => Navigator.pop(ctx, e.$1),
                 child: Row(
                   children: [
-                    Radio<String>(
-                      value: e.$1,
-                      groupValue: _conflictStrategy,
-                      onChanged: null,
+                    Icon(
+                      e.$1 == _conflictStrategy
+                          ? Icons.radio_button_checked
+                          : Icons.radio_button_unchecked,
+                      size: 20,
                     ),
                     const SizedBox(width: 8),
                     Text(e.$2),
@@ -447,7 +451,12 @@ class _SyncSettingsPageState extends State<SyncSettingsPage> {
                 onPressed: () => Navigator.pop(ctx, v),
                 child: Row(
                   children: [
-                    Radio<int>(value: v, groupValue: _maxConcurrent, onChanged: null),
+                    Icon(
+                      v == _maxConcurrent
+                          ? Icons.radio_button_checked
+                          : Icons.radio_button_unchecked,
+                      size: 20,
+                    ),
                     const SizedBox(width: 8),
                     Text('$v'),
                   ],
@@ -482,7 +491,12 @@ class _SyncSettingsPageState extends State<SyncSettingsPage> {
                 onPressed: () => Navigator.pop(ctx, e.$1),
                 child: Row(
                   children: [
-                    Radio<int>(value: e.$1, groupValue: _bandwidthLimitKbps, onChanged: null),
+                    Icon(
+                      e.$1 == _bandwidthLimitKbps
+                          ? Icons.radio_button_checked
+                          : Icons.radio_button_unchecked,
+                      size: 20,
+                    ),
                     const SizedBox(width: 8),
                     Text(e.$2),
                   ],
@@ -536,6 +550,7 @@ class _SyncSettingsPageState extends State<SyncSettingsPage> {
       maxConcurrentTransfers: _maxConcurrent,
       bandwidthLimitKbps: _bandwidthLimitKbps,
       dataDir: appSupportDir.path,
+      clientId: '',
     );
 
     await sync.startSync(config);

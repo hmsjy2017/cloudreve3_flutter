@@ -28,7 +28,6 @@ impl EventHandler {
 
         tokio::spawn(async move {
             loop {
-                // 每次重连获取最新 token
                 let token = api.token().await;
                 let base_url = api.base_url().to_string();
 
@@ -88,9 +87,7 @@ impl EventHandler {
         let mut stream = resp.bytes_stream();
         use futures_util::StreamExt;
 
-        // 行缓冲：跨 chunk 累积不完整的行
         let mut line_buf = String::new();
-        // 当前正在组装的事件
         let mut event = Event::new();
         let mut event_count: u64 = 0;
 
@@ -99,7 +96,6 @@ impl EventHandler {
             let text = String::from_utf8_lossy(&chunk);
             line_buf.push_str(&text);
 
-            // 按换行符拆分完整行，交给 eventsource parser 处理
             while let Some(newline_pos) = line_buf.find('\n') {
                 let line = line_buf[..=newline_pos].to_string();
                 line_buf = line_buf[newline_pos + 1..].to_string();
@@ -107,7 +103,6 @@ impl EventHandler {
                 match parse_event_line(&line, &mut event) {
                     ParseResult::Next => {}
                     ParseResult::Dispatch => {
-                        // 空事件 (keep-alive 心跳) 跳过
                         if event.is_empty() {
                             event.clear();
                             continue;
@@ -117,8 +112,6 @@ impl EventHandler {
                         let event_type = event.event_type.clone().unwrap_or_default();
 
                         if event_type == "event" {
-                            // data 末尾有 \n（eventsource parser 拼接的），trim 后解析 JSON
-                            // 服务端可能发送单个对象或数组
                             let data = event.data.trim();
                             let events: Vec<SseFileEvent> = if data.starts_with('[') {
                                 serde_json::from_str(data).unwrap_or_default()
@@ -132,11 +125,11 @@ impl EventHandler {
                             };
 
                             for ev in &events {
-                                if let Some(remote_event) = Self::parse_sse_event(ev) {
-                                    tracing::info!(
-                                        "[SSE] 收到事件: type={}, from={}",
-                                        ev.event_type, ev.from
-                                    );
+                                tracing::info!(
+                                    "[SSE] 原始事件: type={}, file_id={}, from={}, to={}",
+                                    ev.event_type, ev.file_id, ev.from, ev.to
+                                );
+                                if let Some(remote_event) = Self::parse_sse_event(ev, remote_root) {
                                     if tx.send(remote_event).await.is_err() {
                                         return Ok(());
                                     }
@@ -148,7 +141,6 @@ impl EventHandler {
                         } else if event_type == "subscribed" {
                             tracing::info!("[SSE] 订阅确认成功");
                         } else if event_type == "keep-alive" {
-                            // 心跳，静默忽略
                         } else {
                             tracing::debug!(
                                 "[SSE] 忽略未知事件: type={:?}, data={}",
@@ -171,45 +163,71 @@ impl EventHandler {
     }
 
     /// 将 SSE 文件事件转为内部 RemoteFileEvent
-    fn parse_sse_event(ev: &SseFileEvent) -> Option<RemoteFileEvent> {
+    /// `remote_root` 用于将 SSE 的相对路径 `from`/`to` 拼接为完整 URI
+    ///
+    /// SSE rename 事件需要区分两种情况：
+    /// - 真重命名：from 和 to 的父目录相同，仅文件名不同
+    ///   例: from=/Books/log.txt.aa, to=/Books/log.txt.aaa
+    /// - 移动：from 和 to 的父目录不同
+    ///   例: from=/Readest/log.txt.aa, to=/Readest/Books/log.txt.aa
+    fn parse_sse_event(ev: &SseFileEvent, remote_root: &str) -> Option<RemoteFileEvent> {
+        let full_uri = |path: &str| -> String {
+            if path.starts_with("cloudreve://") || path.starts_with("http") {
+                path.to_string()
+            } else {
+                format!("{}{}", remote_root.trim_end_matches('/'), path)
+            }
+        };
+
         match ev.event_type.as_str() {
             "create" | "modify" => {
+                let uri = full_uri(&ev.from);
                 Some(RemoteFileEvent::Modified(RemoteFileEntry {
-                    uri: ev.from.clone(),
                     name: ev.from.split('/').next_back()
                         .unwrap_or("").to_string(),
+                    path: ev.from.clone(),
+                    uri,
                     size: 0,
                     mtime_ms: 0,
                     hash: None,
                     is_dir: false,
                     file_id: Some(ev.file_id.clone()),
-                    path: ev.from.clone(),
                     created_at_ms: 0,
                 }))
             }
             "delete" => {
+                let uri = full_uri(&ev.from);
                 Some(RemoteFileEvent::Deleted {
-                    uri: ev.from.clone(),
+                    uri,
                     name: ev.from.split('/').next_back()
                         .unwrap_or("").to_string(),
                 })
             }
-            "move" => {
-                Some(RemoteFileEvent::Moved {
-                    old_uri: ev.from.clone(),
-                    new_entry: RemoteFileEntry {
-                        uri: ev.to.clone(),
-                        name: ev.to.split('/').next_back()
-                            .unwrap_or("").to_string(),
-                        size: 0,
-                        mtime_ms: 0,
-                        hash: None,
-                        is_dir: false,
-                        file_id: Some(ev.file_id.clone()),
-                        path: ev.to.clone(),
-                        created_at_ms: 0,
-                    },
-                })
+            "rename" | "move" => {
+                let old_uri = full_uri(&ev.from);
+                let new_uri = full_uri(&ev.to);
+                let new_entry = RemoteFileEntry {
+                    name: ev.to.split('/').next_back()
+                        .unwrap_or("").to_string(),
+                    path: ev.to.clone(),
+                    uri: new_uri,
+                    size: 0,
+                    mtime_ms: 0,
+                    hash: None,
+                    is_dir: false,
+                    file_id: Some(ev.file_id.clone()),
+                    created_at_ms: 0,
+                };
+
+                // 判断是真 rename 还是 move：比较 from 和 to 的父目录
+                let from_parent = ev.from.rfind('/').map(|i| &ev.from[..i]).unwrap_or("");
+                let to_parent = ev.to.rfind('/').map(|i| &ev.to[..i]).unwrap_or("");
+
+                if from_parent == to_parent {
+                    Some(RemoteFileEvent::Renamed { old_uri, new_entry })
+                } else {
+                    Some(RemoteFileEvent::Moved { old_uri, new_entry })
+                }
             }
             _ => {
                 tracing::debug!("[SSE] 忽略未知事件类型: {}", ev.event_type);
@@ -245,7 +263,6 @@ impl EventDebouncer {
         }
     }
 
-    /// 推入事件路径，返回是否应该立即处理
     pub fn should_process(&mut self, path: &PathBuf) -> bool {
         let now = Instant::now();
         if let Some(last) = self.pending.get(path) {
@@ -258,7 +275,6 @@ impl EventDebouncer {
         true
     }
 
-    /// 清理过期的防抖记录
     pub fn cleanup(&mut self) {
         let now = Instant::now();
         self.pending.retain(|_, last| now.duration_since(*last) < self.debounce_window);
@@ -272,13 +288,11 @@ pub async fn batch_remote_events(
 ) -> Vec<RemoteFileEvent> {
     let mut events = Vec::new();
 
-    // 等待第一个事件
     match tokio::time::timeout(window, rx.recv()).await {
         Ok(Some(event)) => events.push(event),
         _ => return events,
     }
 
-    // 收集窗口内的剩余事件
     let deadline = Instant::now() + window;
     while Instant::now() < deadline {
         let remaining = deadline.saturating_duration_since(Instant::now());

@@ -297,6 +297,22 @@ impl SyncDb {
         Ok(rows > 0)
     }
 
+    /// 更新文件映射的路径（重命名时使用）
+    pub async fn update_file_mapping_path(
+        &self,
+        sync_root_id: &str,
+        old_relative_path: &str,
+        new_relative_path: &str,
+        new_remote_uri: &str,
+    ) -> Result<bool> {
+        let conn = self.write_conn.lock().await;
+        let rows = conn.execute(
+            "UPDATE file_mapping SET local_path = ?1, remote_uri = ?2 WHERE sync_root_id = ?3 AND local_path = ?4",
+            rusqlite::params![new_relative_path, new_remote_uri, sync_root_id, old_relative_path],
+        )?;
+        Ok(rows > 0)
+    }
+
     /// 删除指定目录前缀下的所有文件映射（含目录自身）
     pub async fn delete_file_mapping_prefix(&self, sync_root_id: &str, dir_prefix: &str) -> Result<u64> {
         let conn = self.write_conn.lock().await;

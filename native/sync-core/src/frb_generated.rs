@@ -343,7 +343,8 @@ let mut var_bandwidthLimitKbps = <u64>::sse_decode(deserializer);
 let mut var_excludedPaths = <Vec<String>>::sse_decode(deserializer);
 let mut var_selectiveDirs = <Vec<String>>::sse_decode(deserializer);
 let mut var_dataDir = <String>::sse_decode(deserializer);
-return crate::api::ffi_types::SyncConfigFfi{base_url: var_baseUrl, access_token: var_accessToken, refresh_token: var_refreshToken, local_root: var_localRoot, remote_root: var_remoteRoot, sync_mode: var_syncMode, conflict_strategy: var_conflictStrategy, max_concurrent_transfers: var_maxConcurrentTransfers, bandwidth_limit_kbps: var_bandwidthLimitKbps, excluded_paths: var_excludedPaths, selective_dirs: var_selectiveDirs, data_dir: var_dataDir};}
+let mut var_clientId = <String>::sse_decode(deserializer);
+return crate::api::ffi_types::SyncConfigFfi{base_url: var_baseUrl, access_token: var_accessToken, refresh_token: var_refreshToken, local_root: var_localRoot, remote_root: var_remoteRoot, sync_mode: var_syncMode, conflict_strategy: var_conflictStrategy, max_concurrent_transfers: var_maxConcurrentTransfers, bandwidth_limit_kbps: var_bandwidthLimitKbps, excluded_paths: var_excludedPaths, selective_dirs: var_selectiveDirs, data_dir: var_dataDir, client_id: var_clientId};}
                 }
                 
                 impl SseDecode for crate::api::ffi_types::SyncErrorFfi {
@@ -431,11 +432,12 @@ return crate::api::ffi_types::SyncStatusFfi{state: var_state, synced_files: var_
                     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {let mut var_uploaded = <u32>::sse_decode(deserializer);
 let mut var_downloaded = <u32>::sse_decode(deserializer);
 let mut var_conflicts = <u32>::sse_decode(deserializer);
+let mut var_failed = <u32>::sse_decode(deserializer);
 let mut var_skipped = <u32>::sse_decode(deserializer);
 let mut var_deletedLocal = <u32>::sse_decode(deserializer);
 let mut var_deletedRemote = <u32>::sse_decode(deserializer);
 let mut var_durationMs = <u64>::sse_decode(deserializer);
-return crate::api::ffi_types::SyncSummaryFfi{uploaded: var_uploaded, downloaded: var_downloaded, conflicts: var_conflicts, skipped: var_skipped, deleted_local: var_deletedLocal, deleted_remote: var_deletedRemote, duration_ms: var_durationMs};}
+return crate::api::ffi_types::SyncSummaryFfi{uploaded: var_uploaded, downloaded: var_downloaded, conflicts: var_conflicts, failed: var_failed, skipped: var_skipped, deleted_local: var_deletedLocal, deleted_remote: var_deletedRemote, duration_ms: var_durationMs};}
                 }
                 
                 impl SseDecode for crate::api::ffi_types::SyncTaskFfi {
@@ -584,7 +586,8 @@ self.max_concurrent_transfers.into_into_dart().into_dart(),
 self.bandwidth_limit_kbps.into_into_dart().into_dart(),
 self.excluded_paths.into_into_dart().into_dart(),
 self.selective_dirs.into_into_dart().into_dart(),
-self.data_dir.into_into_dart().into_dart()
+self.data_dir.into_into_dart().into_dart(),
+self.client_id.into_into_dart().into_dart()
                 ].into_dart()
                 }
             }
@@ -701,6 +704,7 @@ impl flutter_rust_bridge::IntoIntoDart<crate::api::ffi_types::SyncStatusFfi> for
                     self.uploaded.into_into_dart().into_dart(),
 self.downloaded.into_into_dart().into_dart(),
 self.conflicts.into_into_dart().into_dart(),
+self.failed.into_into_dart().into_dart(),
 self.skipped.into_into_dart().into_dart(),
 self.deleted_local.into_into_dart().into_dart(),
 self.deleted_remote.into_into_dart().into_dart(),
@@ -856,7 +860,8 @@ impl flutter_rust_bridge::IntoIntoDart<crate::api::ffi_types::TaskItemFilterFfi>
 <u64>::sse_encode(self.bandwidth_limit_kbps, serializer);
 <Vec<String>>::sse_encode(self.excluded_paths, serializer);
 <Vec<String>>::sse_encode(self.selective_dirs, serializer);
-<String>::sse_encode(self.data_dir, serializer);}
+<String>::sse_encode(self.data_dir, serializer);
+<String>::sse_encode(self.client_id, serializer);}
                 }
                 
                 impl SseEncode for crate::api::ffi_types::SyncErrorFfi {
@@ -941,6 +946,7 @@ crate::api::ffi_types::SyncEventFfi::TaskItemUpdated{task_id,relative_path,actio
                     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {<u32>::sse_encode(self.uploaded, serializer);
 <u32>::sse_encode(self.downloaded, serializer);
 <u32>::sse_encode(self.conflicts, serializer);
+<u32>::sse_encode(self.failed, serializer);
 <u32>::sse_encode(self.skipped, serializer);
 <u32>::sse_encode(self.deleted_local, serializer);
 <u32>::sse_encode(self.deleted_remote, serializer);

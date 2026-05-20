@@ -742,7 +742,7 @@ return raw == null ? null : dco_decode_String(raw); }
 
 @protected SyncConfigFfi dco_decode_sync_config_ffi(dynamic raw){ // Codec=Dco (DartCObject based), see doc to use other codecs
 final arr = raw as List<dynamic>;
-                if (arr.length != 12) throw Exception('unexpected arr length: expect 12 but see ${arr.length}');
+                if (arr.length != 13) throw Exception('unexpected arr length: expect 13 but see ${arr.length}');
                 return SyncConfigFfi(baseUrl: dco_decode_String(arr[0]),
 accessToken: dco_decode_String(arr[1]),
 refreshToken: dco_decode_String(arr[2]),
@@ -754,7 +754,8 @@ maxConcurrentTransfers: dco_decode_u_32(arr[7]),
 bandwidthLimitKbps: dco_decode_u_64(arr[8]),
 excludedPaths: dco_decode_list_String(arr[9]),
 selectiveDirs: dco_decode_list_String(arr[10]),
-dataDir: dco_decode_String(arr[11]),); }
+dataDir: dco_decode_String(arr[11]),
+clientId: dco_decode_String(arr[12]),); }
 
 @protected SyncErrorFfi dco_decode_sync_error_ffi(dynamic raw){ // Codec=Dco (DartCObject based), see doc to use other codecs
 switch (raw[0]) {
@@ -800,14 +801,15 @@ errorMessage: dco_decode_opt_String(arr[8]),); }
 
 @protected SyncSummaryFfi dco_decode_sync_summary_ffi(dynamic raw){ // Codec=Dco (DartCObject based), see doc to use other codecs
 final arr = raw as List<dynamic>;
-                if (arr.length != 7) throw Exception('unexpected arr length: expect 7 but see ${arr.length}');
+                if (arr.length != 8) throw Exception('unexpected arr length: expect 8 but see ${arr.length}');
                 return SyncSummaryFfi(uploaded: dco_decode_u_32(arr[0]),
 downloaded: dco_decode_u_32(arr[1]),
 conflicts: dco_decode_u_32(arr[2]),
-skipped: dco_decode_u_32(arr[3]),
-deletedLocal: dco_decode_u_32(arr[4]),
-deletedRemote: dco_decode_u_32(arr[5]),
-durationMs: dco_decode_u_64(arr[6]),); }
+failed: dco_decode_u_32(arr[3]),
+skipped: dco_decode_u_32(arr[4]),
+deletedLocal: dco_decode_u_32(arr[5]),
+deletedRemote: dco_decode_u_32(arr[6]),
+durationMs: dco_decode_u_64(arr[7]),); }
 
 @protected SyncTaskFfi dco_decode_sync_task_ffi(dynamic raw){ // Codec=Dco (DartCObject based), see doc to use other codecs
 final arr = raw as List<dynamic>;
@@ -940,7 +942,8 @@ var var_bandwidthLimitKbps = sse_decode_u_64(deserializer);
 var var_excludedPaths = sse_decode_list_String(deserializer);
 var var_selectiveDirs = sse_decode_list_String(deserializer);
 var var_dataDir = sse_decode_String(deserializer);
-return SyncConfigFfi(baseUrl: var_baseUrl, accessToken: var_accessToken, refreshToken: var_refreshToken, localRoot: var_localRoot, remoteRoot: var_remoteRoot, syncMode: var_syncMode, conflictStrategy: var_conflictStrategy, maxConcurrentTransfers: var_maxConcurrentTransfers, bandwidthLimitKbps: var_bandwidthLimitKbps, excludedPaths: var_excludedPaths, selectiveDirs: var_selectiveDirs, dataDir: var_dataDir); }
+var var_clientId = sse_decode_String(deserializer);
+return SyncConfigFfi(baseUrl: var_baseUrl, accessToken: var_accessToken, refreshToken: var_refreshToken, localRoot: var_localRoot, remoteRoot: var_remoteRoot, syncMode: var_syncMode, conflictStrategy: var_conflictStrategy, maxConcurrentTransfers: var_maxConcurrentTransfers, bandwidthLimitKbps: var_bandwidthLimitKbps, excludedPaths: var_excludedPaths, selectiveDirs: var_selectiveDirs, dataDir: var_dataDir, clientId: var_clientId); }
 
 @protected SyncErrorFfi sse_decode_sync_error_ffi(SseDeserializer deserializer){ // Codec=Sse (Serialization based), see doc to use other codecs
 
@@ -1005,11 +1008,12 @@ return SyncStatusFfi(state: var_state, syncedFiles: var_syncedFiles, totalFiles:
 var var_uploaded = sse_decode_u_32(deserializer);
 var var_downloaded = sse_decode_u_32(deserializer);
 var var_conflicts = sse_decode_u_32(deserializer);
+var var_failed = sse_decode_u_32(deserializer);
 var var_skipped = sse_decode_u_32(deserializer);
 var var_deletedLocal = sse_decode_u_32(deserializer);
 var var_deletedRemote = sse_decode_u_32(deserializer);
 var var_durationMs = sse_decode_u_64(deserializer);
-return SyncSummaryFfi(uploaded: var_uploaded, downloaded: var_downloaded, conflicts: var_conflicts, skipped: var_skipped, deletedLocal: var_deletedLocal, deletedRemote: var_deletedRemote, durationMs: var_durationMs); }
+return SyncSummaryFfi(uploaded: var_uploaded, downloaded: var_downloaded, conflicts: var_conflicts, failed: var_failed, skipped: var_skipped, deletedLocal: var_deletedLocal, deletedRemote: var_deletedRemote, durationMs: var_durationMs); }
 
 @protected SyncTaskFfi sse_decode_sync_task_ffi(SseDeserializer deserializer){ // Codec=Sse (Serialization based), see doc to use other codecs
 var var_id = sse_decode_String(deserializer);
@@ -1130,6 +1134,7 @@ sse_encode_u_64(self.bandwidthLimitKbps, serializer);
 sse_encode_list_String(self.excludedPaths, serializer);
 sse_encode_list_String(self.selectiveDirs, serializer);
 sse_encode_String(self.dataDir, serializer);
+sse_encode_String(self.clientId, serializer);
  }
 
 @protected void sse_encode_sync_error_ffi(SyncErrorFfi self, SseSerializer serializer){ // Codec=Sse (Serialization based), see doc to use other codecs
@@ -1189,6 +1194,7 @@ sse_encode_opt_String(self.errorMessage, serializer);
 sse_encode_u_32(self.uploaded, serializer);
 sse_encode_u_32(self.downloaded, serializer);
 sse_encode_u_32(self.conflicts, serializer);
+sse_encode_u_32(self.failed, serializer);
 sse_encode_u_32(self.skipped, serializer);
 sse_encode_u_32(self.deletedLocal, serializer);
 sse_encode_u_32(self.deletedRemote, serializer);
