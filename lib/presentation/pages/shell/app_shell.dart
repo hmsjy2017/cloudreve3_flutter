@@ -2,6 +2,7 @@ import 'package:cloudreve4_flutter/presentation/providers/auth_provider.dart';
 import 'package:cloudreve4_flutter/presentation/providers/download_manager_provider.dart';
 import 'package:cloudreve4_flutter/presentation/providers/file_manager_provider.dart';
 import 'package:cloudreve4_flutter/presentation/providers/navigation_provider.dart';
+import 'package:cloudreve4_flutter/presentation/providers/sync_provider.dart';
 import 'package:cloudreve4_flutter/presentation/providers/upload_manager_provider.dart';
 import 'package:cloudreve4_flutter/presentation/widgets/gesture_handler_mixin.dart';
 import 'package:cloudreve4_flutter/presentation/widgets/glassmorphism_container.dart';
@@ -12,6 +13,7 @@ import 'package:provider/provider.dart';
 import '../../../router/app_router.dart';
 import '../files/files_page.dart';
 import '../overview/overview_page.dart';
+import '../sync/sync_page.dart';
 import '../tasks/tasks_page.dart';
 import '../store/store_page.dart';
 import '../profile/profile_page.dart';
@@ -44,8 +46,25 @@ class AppShell extends StatefulWidget {
   State<AppShell> createState() => _AppShellState();
 }
 
-class _AppShellState extends State<AppShell> with GestureHandlerMixin {
+class _AppShellState extends State<AppShell> with GestureHandlerMixin, TickerProviderStateMixin {
   final Set<int> _visitedPageIndexes = <int>{0};
+  late AnimationController _syncSpinController;
+
+  @override
+  void initState() {
+    super.initState();
+    _syncSpinController = AnimationController(
+      vsync: this,
+      duration: const Duration(seconds: 2),
+    );
+  }
+
+  @override
+  void dispose() {
+    _syncSpinController.dispose();
+    super.dispose();
+  }
+
   @override
   Widget build(BuildContext context) {
     final screenWidth = MediaQuery.of(context).size.width;
@@ -84,7 +103,7 @@ class _AppShellState extends State<AppShell> with GestureHandlerMixin {
     return RepaintBoundary(
       child: IndexedStack(
         index: currentIndex,
-        children: List.generate(5, (index) {
+        children: List.generate(6, (index) {
           if (!_visitedPageIndexes.contains(index)) {
             return const SizedBox.shrink();
           }
@@ -105,10 +124,41 @@ class _AppShellState extends State<AppShell> with GestureHandlerMixin {
       case 3:
         return const StorePage();
       case 4:
+        return const SyncPage();
+      case 5:
         return const ProfilePage();
       default:
         return const OverviewPage();
     }
+  }
+
+  Widget _buildSyncIcon({required bool isSelected, required double size}) {
+    return Consumer<SyncProvider>(
+      builder: (context, sync, _) {
+        final hasActive = sync.isActive;
+        if (hasActive && !_syncSpinController.isAnimating) {
+          _syncSpinController.repeat();
+        } else if (!hasActive && _syncSpinController.isAnimating) {
+          _syncSpinController.stop();
+        }
+
+        if (hasActive) {
+          return RotationTransition(
+            turns: _syncSpinController,
+            child: Icon(
+              isSelected ? LucideIcons.refreshCw : LucideIcons.refreshCw,
+              size: size,
+              weight: isSelected ? 700 : 400,
+            ),
+          );
+        }
+        return Icon(
+          LucideIcons.refreshCw,
+          size: size,
+          weight: isSelected ? 700 : 400,
+        );
+      },
+    );
   }
 
   Widget _buildMobileLayout(BuildContext context, NavigationProvider navProvider) {
@@ -154,6 +204,27 @@ class _AppShellState extends State<AppShell> with GestureHandlerMixin {
                   selectedIcon: Icon(Icons.storefront),
                   label: '商店',
                 ),
+                NavigationDestination(
+                  icon: Consumer<SyncProvider>(
+                    builder: (context, sync, _) {
+                      return Badge(
+                        isLabelVisible: sync.activeWorkerCount > 0,
+                        label: Text('${sync.activeWorkerCount}'),
+                        child: _buildSyncIcon(isSelected: false, size: 24),
+                      );
+                    },
+                  ),
+                  selectedIcon: Consumer<SyncProvider>(
+                    builder: (context, sync, _) {
+                      return Badge(
+                        isLabelVisible: sync.activeWorkerCount > 0,
+                        label: Text('${sync.activeWorkerCount}'),
+                        child: _buildSyncIcon(isSelected: true, size: 24),
+                      );
+                    },
+                  ),
+                  label: '同步',
+                ),
                 const NavigationDestination(
                   icon: Icon(LucideIcons.user),
                   selectedIcon: Icon(LucideIcons.user, weight: 700),
@@ -182,11 +253,11 @@ class _AppShellState extends State<AppShell> with GestureHandlerMixin {
             leading: Padding(
               padding: const EdgeInsets.symmetric(vertical: 16),
               child: GestureDetector(
-                onTap: () => navProvider.setIndex(4),
+                onTap: () => navProvider.setIndex(5),
                 child: Container(
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
-                    border: navProvider.currentIndex == 4
+                    border: navProvider.currentIndex == 5
                         ? Border.all(
                             color: theme.colorScheme.primary,
                             width: 2.5,
@@ -231,6 +302,23 @@ class _AppShellState extends State<AppShell> with GestureHandlerMixin {
                 icon: Icon(Icons.storefront_outlined),
                 selectedIcon: Icon(Icons.storefront),
                 label: Text('商店'),
+              ),
+              NavigationRailDestination(
+                icon: Consumer<SyncProvider>(
+                  builder: (context, sync, _) {
+                    return Badge(
+                      isLabelVisible: sync.activeWorkerCount > 0,
+                      label: Text('${sync.activeWorkerCount}'),
+                      child: _buildSyncIcon(isSelected: false, size: 24),
+                    );
+                  },
+                ),
+                selectedIcon: Consumer<SyncProvider>(
+                  builder: (context, sync, _) {
+                    return _buildSyncIcon(isSelected: true, size: 24);
+                  },
+                ),
+                label: const Text('同步'),
               ),
               const NavigationRailDestination(
                 icon: Icon(LucideIcons.user),

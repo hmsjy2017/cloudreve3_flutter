@@ -116,37 +116,45 @@ find_program(CARGO_CMD cargo
         "$ENV{CARGO_HOME}\\bin"
     NO_DEFAULT_PATH
 )
-# 如果以上路径都找不到，回退到系统 PATH
 if(NOT CARGO_CMD)
     find_program(CARGO_CMD cargo)
 endif()
+
 if(NOT CARGO_CMD)
     message(WARNING "cargo not found, skipping Rust sync engine build")
 else()
     set(SYNC_CORE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../native")
-
-    if(CMAKE_BUILD_TYPE STREQUAL "Release" OR CMAKE_BUILD_TYPE STREQUAL "Profile")
-        set(CARGO_PROFILE "--release")
-        set(RUST_BUILD_DIR "release")
-    else()
-        set(CARGO_PROFILE "")
-        set(RUST_BUILD_DIR "debug")
-    endif()
-
     set(RUST_TARGET_DIR "${CMAKE_BINARY_DIR}/rust_target")
 
+    # --- Debug 模式下的编译与目标 ---
     add_custom_command(
-        OUTPUT "${RUST_TARGET_DIR}/${RUST_BUILD_DIR}/sync_core.dll"
-        COMMAND ${CARGO_CMD} build ${CARGO_PROFILE}
+        OUTPUT "${RUST_TARGET_DIR}/debug/sync_core.dll"
+        COMMAND ${CARGO_CMD} build
             --manifest-path "${SYNC_CORE_DIR}/Cargo.toml"
             --target-dir "${RUST_TARGET_DIR}"
-        COMMENT "Building Rust sync engine..."
+        COMMENT "Building Rust sync engine (Debug)..."
     )
 
-    add_custom_target(sync_core_build DEPENDS "${RUST_TARGET_DIR}/${RUST_BUILD_DIR}/sync_core.dll")
+    # --- Release & Profile 模式下的编译与目标 ---
+    # 统一生成到 release 目录
+    add_custom_command(
+        OUTPUT "${RUST_TARGET_DIR}/release/sync_core.dll"
+        COMMAND ${CARGO_CMD} build --release
+            --manifest-path "${SYNC_CORE_DIR}/Cargo.toml"
+            --target-dir "${RUST_TARGET_DIR}"
+        COMMENT "Building Rust sync engine (Release)..."
+    )
+
+    add_custom_target(sync_core_build
+            DEPENDS
+                $<$<OR:$<CONFIG:Release>,$<CONFIG:Profile>>:${RUST_DLL_RELEASE}>
+                $<$<NOT:$<OR:$<CONFIG:Release>,$<CONFIG:Profile>>>:${RUST_DLL_DEBUG}>
+        )
     add_dependencies(${BINARY_NAME} sync_core_build)
 
-    install(FILES "${RUST_TARGET_DIR}/${RUST_BUILD_DIR}/sync_core.dll"
+    install(FILES
+        $<$<OR:$<CONFIG:Release>,$<CONFIG:Profile>>:${RUST_DLL_RELEASE}>
+        $<$<NOT:$<OR:$<CONFIG:Release>,$<CONFIG:Profile>>>:${RUST_DLL_DEBUG}>
         DESTINATION "${INSTALL_BUNDLE_LIB_DIR}"
         COMPONENT Runtime)
 endif()

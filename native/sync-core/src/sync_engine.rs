@@ -58,6 +58,8 @@ impl SyncEngine {
         let event_sink = Arc::new(EventSink::new());
         let suppress_paths = Arc::new(DashMap::new());
 
+        let max_workers = config.max_workers;
+        let client_id = config.client_id.clone();
         let worker_pool = WorkerPool::new(
             db.clone(),
             api.clone(),
@@ -65,6 +67,8 @@ impl SyncEngine {
             ensured_dirs.clone(),
             event_sink.clone(),
             shutdown_token.clone(),
+            max_workers,
+            &client_id,
         );
 
         Ok(Self {
@@ -92,6 +96,7 @@ impl SyncEngine {
             bandwidth_limit: config.bandwidth_limit,
             conflict_strategy: config.conflict_strategy.clone(),
             sync_root_id: self.sync_root_id.clone().unwrap_or_default(),
+            sync_mode: config.sync_mode.clone(),
         }
     }
 
@@ -115,7 +120,11 @@ impl SyncEngine {
         tracing::info!("远程扫描完成: {} 个条目", remote_files.len());
 
         let db_mappings = self.load_all_mappings().await?;
-        let plan = crate::diff::compute_diff(&local_files, &remote_files, &db_mappings, &remote_root);
+        let sync_mode = {
+            let config = self.config.read().await;
+            config.sync_mode.clone()
+        };
+        let plan = crate::diff::compute_diff(&local_files, &remote_files, &db_mappings, &remote_root, &sync_mode);
         tracing::info!(
             "差异计算完成: 上传={}, 下载={}, 删本地={}, 删远程={}, 冲突={}",
             plan.uploads.len(),
@@ -150,114 +159,122 @@ impl SyncEngine {
         })
     }
 
-    /// 持续同步：双事件源驱动 (SSE + 本地文件监听)
+    /// 持续同步：双事件源驱动 (SSE + 本地文件监听)，按 sync_mode 选择事件源
     pub async fn run_continuous(&self) -> Result<()> {
         let event_handler = EventHandler::new(
             self.api.clone(),
             self.api.client_id().to_string(),
         );
 
-        let (local_root, remote_root) = {
+        let (local_root, remote_root, sync_mode) = {
             let config = self.config.read().await;
-            (config.local_root.clone(), config.remote_root.clone())
+            (config.local_root.clone(), config.remote_root.clone(), config.sync_mode.clone())
         };
 
-        // 订阅远程 SSE 事件
-        let mut remote_rx = event_handler.subscribe_sse(&remote_root).await?;
+        // 仅 DownloadOnly 和 Full 订阅 SSE
+        let mut remote_rx = if matches!(sync_mode, SyncMode::DownloadOnly | SyncMode::Full) {
+            Some(event_handler.subscribe_sse(&remote_root).await?)
+        } else {
+            tracing::info!("仅上传模式: 不订阅 SSE 远程事件");
+            None
+        };
 
-        // 启动本地文件监听 (notify-debouncer-full)
-        let (local_tx, mut local_rx) = tokio::sync::mpsc::channel::<LocalFileEvent>(256);
-        let shutdown_clone = self.shutdown_token.clone();
-        let watch_root = local_root.clone();
+        // 仅 UploadOnly 和 Full 启动本地文件监听
+        let mut local_rx = if matches!(sync_mode, SyncMode::UploadOnly | SyncMode::Full) {
+            let (local_tx, rx) = tokio::sync::mpsc::channel::<LocalFileEvent>(256);
+            let shutdown_clone = self.shutdown_token.clone();
+            let watch_root = local_root.clone();
 
-        std::thread::spawn(move || {
-            use notify_debouncer_full::notify::{RecursiveMode, EventKind};
-            use notify_debouncer_full::notify::event::{ModifyKind, RenameMode};
-            use notify_debouncer_full::new_debouncer;
+            std::thread::spawn(move || {
+                use notify_debouncer_full::notify::{RecursiveMode, EventKind};
+                use notify_debouncer_full::notify::event::{ModifyKind, RenameMode};
+                use notify_debouncer_full::new_debouncer;
 
-            let tx = local_tx.clone();
-            let shutdown = shutdown_clone.clone();
+                let tx = local_tx.clone();
+                let shutdown = shutdown_clone.clone();
 
-            let mut debouncer = match new_debouncer(
-                std::time::Duration::from_millis(500),
-                None,
-                move |result: notify_debouncer_full::DebounceEventResult| {
-                    match result {
-                        Ok(events) => {
-                            for event in events {
-                                if shutdown.is_cancelled() { return; }
-                                let kind = event.kind;
-                                let paths = &event.paths;
+                let mut debouncer = match new_debouncer(
+                    std::time::Duration::from_millis(500),
+                    None,
+                    move |result: notify_debouncer_full::DebounceEventResult| {
+                        match result {
+                            Ok(events) => {
+                                for event in events {
+                                    if shutdown.is_cancelled() { return; }
+                                    let kind = event.kind;
+                                    let paths = &event.paths;
 
-                                let filtered: Vec<_> = paths.iter()
-                                    .filter(|p| !p.extension().map(|e| e == "sync_tmp").unwrap_or(false))
-                                    .cloned()
-                                    .collect();
-                                if filtered.is_empty() { continue; }
+                                    let filtered: Vec<_> = paths.iter()
+                                        .filter(|p| !p.extension().map(|e| e == "sync_tmp").unwrap_or(false))
+                                        .cloned()
+                                        .collect();
+                                    if filtered.is_empty() { continue; }
 
-                                match kind {
-                                    EventKind::Create(_) => {
-                                        let _ = tx.blocking_send(LocalFileEvent::Created(filtered));
-                                    }
-                                    EventKind::Modify(ModifyKind::Name(RenameMode::From)) => {
-                                        // debouncer 会自动配对 From+To
-                                    }
-                                    EventKind::Modify(ModifyKind::Name(RenameMode::To)) => {
-                                        // debouncer 会自动配对
-                                    }
-                                    EventKind::Modify(ModifyKind::Name(RenameMode::Both)) => {
-                                        if filtered.len() == 2 {
-                                            let _ = tx.blocking_send(LocalFileEvent::Renamed {
-                                                old_paths: vec![filtered[0].clone()],
-                                                new_paths: vec![filtered[1].clone()],
-                                            });
+                                    match kind {
+                                        EventKind::Create(_) => {
+                                            let _ = tx.blocking_send(LocalFileEvent::Created(filtered));
                                         }
+                                        EventKind::Modify(ModifyKind::Name(RenameMode::From)) => {}
+                                        EventKind::Modify(ModifyKind::Name(RenameMode::To)) => {}
+                                        EventKind::Modify(ModifyKind::Name(RenameMode::Both)) => {
+                                            if filtered.len() == 2 {
+                                                let _ = tx.blocking_send(LocalFileEvent::Renamed {
+                                                    old_paths: vec![filtered[0].clone()],
+                                                    new_paths: vec![filtered[1].clone()],
+                                                });
+                                            }
+                                        }
+                                        EventKind::Modify(ModifyKind::Name(RenameMode::Other)) => {
+                                            let _ = tx.blocking_send(LocalFileEvent::Modified(filtered));
+                                        }
+                                        EventKind::Modify(_) => {
+                                            let _ = tx.blocking_send(LocalFileEvent::Modified(filtered));
+                                        }
+                                        EventKind::Remove(_) => {
+                                            let _ = tx.blocking_send(LocalFileEvent::Deleted(filtered));
+                                        }
+                                        _ => {}
                                     }
-                                    EventKind::Modify(ModifyKind::Name(RenameMode::Other)) => {
-                                        let _ = tx.blocking_send(LocalFileEvent::Modified(filtered));
-                                    }
-                                    EventKind::Modify(_) => {
-                                        let _ = tx.blocking_send(LocalFileEvent::Modified(filtered));
-                                    }
-                                    EventKind::Remove(_) => {
-                                        let _ = tx.blocking_send(LocalFileEvent::Deleted(filtered));
-                                    }
-                                    _ => {}
+                                }
+                            }
+                            Err(errors) => {
+                                for e in errors {
+                                    tracing::warn!("文件监听去抖错误: {}", e);
                                 }
                             }
                         }
-                        Err(errors) => {
-                            for e in errors {
-                                tracing::warn!("文件监听去抖错误: {}", e);
-                            }
-                        }
+                    },
+                ) {
+                    Ok(d) => d,
+                    Err(e) => {
+                        tracing::error!("无法启动文件监听: {}", e);
+                        return;
                     }
-                },
-            ) {
-                Ok(d) => d,
-                Err(e) => {
-                    tracing::error!("无法启动文件监听: {}", e);
+                };
+
+                if let Err(e) = debouncer.watch(&watch_root, RecursiveMode::Recursive) {
+                    tracing::error!("文件监听启动失败: {}", e);
                     return;
                 }
-            };
 
-            if let Err(e) = debouncer.watch(&watch_root, RecursiveMode::Recursive) {
-                tracing::error!("文件监听启动失败: {}", e);
-                return;
-            }
+                tracing::info!("本地文件监听已启动(debouncer): {}", watch_root.display());
 
-            tracing::info!("本地文件监听已启动(debouncer): {}", watch_root.display());
+                while !shutdown_clone.is_cancelled() {
+                    std::thread::sleep(std::time::Duration::from_millis(500));
+                }
 
-            while !shutdown_clone.is_cancelled() {
-                std::thread::sleep(std::time::Duration::from_millis(500));
-            }
+                let _ = debouncer.unwatch(&watch_root);
+                tracing::info!("本地文件监听已停止");
+            });
 
-            let _ = debouncer.unwatch(&watch_root);
-            tracing::info!("本地文件监听已停止");
-        });
+            Some(rx)
+        } else {
+            tracing::info!("仅下载模式: 不启动本地文件监听");
+            None
+        };
 
         *self.state.write().await = SyncState::Continuous;
-        tracing::info!("持续同步已启动");
+        tracing::info!("持续同步已启动, 模式={:?}", sync_mode);
 
         let mut debounce = crate::event_handler::EventDebouncer::new(
             std::time::Duration::from_millis(500),
@@ -270,20 +287,31 @@ impl SyncEngine {
                     break;
                 }
 
-                // 本地文件变化
-                Some(event) = local_rx.recv() => {
-                    // 空闲窗口收集
+                // 本地文件变化（仅 UploadOnly / Full）
+                Some(event) = async {
+                    match &mut local_rx {
+                        Some(rx) => rx.recv().await,
+                        None => std::future::pending().await,
+                    }
+                } => {
                     let mut all_events = vec![event];
                     let idle_timeout = std::time::Duration::from_secs(3);
-                    while let Ok(Some(e)) = tokio::time::timeout(idle_timeout, local_rx.recv()).await {
-                        all_events.push(e)
+                    if let Some(rx) = &mut local_rx {
+                        while let Ok(Some(e)) = tokio::time::timeout(idle_timeout, rx.recv()).await {
+                            all_events.push(e)
+                        }
                     }
 
                     self.handle_local_events(all_events, &local_root, &mut debounce).await;
                 }
 
-                // 远程文件变化
-                Some(event) = remote_rx.recv() => {
+                // 远程文件变化（仅 DownloadOnly / Full）
+                Some(event) = async {
+                    match &mut remote_rx {
+                        Some(rx) => rx.recv().await,
+                        None => std::future::pending().await,
+                    }
+                } => {
                     self.handle_remote_event(event, &local_root, &remote_root).await;
                 }
 
@@ -305,6 +333,15 @@ impl SyncEngine {
         local_root: &std::path::Path,
         debounce: &mut crate::event_handler::EventDebouncer,
     ) {
+        // DownloadOnly: 忽略所有本地事件
+        let sync_mode = {
+            let config = self.config.read().await;
+            config.sync_mode.clone()
+        };
+        if matches!(sync_mode, SyncMode::DownloadOnly) {
+            return;
+        }
+
         let root_id = self.sync_root_id.clone().unwrap_or_default();
 
         // 清理过期的 suppress 记录（超过 30 秒）
@@ -624,8 +661,8 @@ impl SyncEngine {
             }
         }
 
-        // === 提交删除远程任务 (本地删除 → 删除远程) ===
-        if !delete_paths.is_empty() {
+        // === 提交删除远程任务 (本地删除 → 删除远程，仅 Full 模式) ===
+        if !delete_paths.is_empty() && matches!(sync_mode, SyncMode::Full) {
             let mut delete_remote: Vec<SyncAction> = Vec::new();
             for relative in &delete_paths {
                 tracing::info!("检测到本地文件删除: {}", relative);
@@ -663,6 +700,14 @@ impl SyncEngine {
                 ).await;
             }
         }
+
+        // UploadOnly 模式下本地删除仅清理 DB mapping，不删除远程
+        if !delete_paths.is_empty() && matches!(sync_mode, SyncMode::UploadOnly) {
+            for relative in &delete_paths {
+                let _ = self.db.delete_file_mapping(&root_id, relative).await;
+                tracing::debug!("仅上传模式: 本地删除仅清理映射，不删除远程: {}", relative);
+            }
+        }
     }
 
     /// 处理远程事件
@@ -672,6 +717,15 @@ impl SyncEngine {
         local_root: &std::path::Path,
         remote_root: &str,
     ) {
+        // UploadOnly: 忽略所有远程事件
+        let sync_mode = {
+            let config = self.config.read().await;
+            config.sync_mode.clone()
+        };
+        if matches!(sync_mode, SyncMode::UploadOnly) {
+            return;
+        }
+
         let root_id = self.sync_root_id.clone().unwrap_or_default();
 
         match &event {
@@ -762,49 +816,27 @@ impl SyncEngine {
                 );
                 tracing::info!("[远程事件] 重命名: {} -> {}", old_relative, new_relative);
 
+                // 抑制本地 debouncer 自触发事件
+                let now = std::time::Instant::now();
+                self.suppress_paths.insert(old_relative.clone(), now);
+                self.suppress_paths.insert(new_relative.clone(), now);
+
                 let old_local_path = local_root.join(&old_relative);
-                let new_local_path = local_root.join(&new_relative);
 
                 if old_local_path.exists() {
-                    if let Some(parent) = new_local_path.parent() {
-                        let _ = tokio::fs::create_dir_all(parent).await;
-                    }
-                    match tokio::fs::rename(&old_local_path, &new_local_path).await {
-                        Ok(_) => {
-                            tracing::info!("[远程事件] 本地文件重命名成功: {} -> {}", old_relative, new_relative);
-                            let _ = self.db.update_file_mapping_path(
-                                &root_id, &old_relative, &new_relative, &new_entry.uri,
-                            ).await;
-                            // 抑制本地 debouncer 自触发事件
-                            let now = std::time::Instant::now();
-                            self.suppress_paths.insert(old_relative.clone(), now);
-                            self.suppress_paths.insert(new_relative.clone(), now);
-                        }
-                        Err(e) => {
-                            tracing::warn!("[远程事件] 本地重命名失败，回退到删除+下载: {}: {}", new_relative, e);
-                            let _ = tokio::fs::remove_file(&old_local_path).await;
-                            let _ = self.db.delete_file_mapping(&root_id, &old_relative).await;
-                            let now = std::time::Instant::now();
-                            self.suppress_paths.insert(old_relative.clone(), now);
-                            self.suppress_paths.insert(new_relative.clone(), now);
-
-                            let remote_entry = self.get_remote_entry_or_fallback(new_entry).await;
-                            let plan = SyncPlan {
-                                downloads: vec![SyncAction {
-                                    relative_path: new_relative,
-                                    local_entry: None,
-                                    remote_entry: Some(remote_entry),
-                                    db_mapping: None,
-                                }],
-                                ..Default::default()
-                            };
-                            let worker_config = self.snapshot_worker_config().await;
-                            let conflict_resolver = self.conflict.read().await.clone();
-                            self.worker_pool.submit_background(
-                                plan, worker_config, WorkerTrigger::Continuous, conflict_resolver,
-                            ).await;
-                        }
-                    }
+                    let plan = SyncPlan {
+                        rename_local: vec![LocalRenameAction {
+                            old_relative_path: old_relative,
+                            new_relative_path: new_relative,
+                            new_remote_uri: new_entry.uri.clone(),
+                        }],
+                        ..Default::default()
+                    };
+                    let worker_config = self.snapshot_worker_config().await;
+                    let conflict_resolver = self.conflict.read().await.clone();
+                    self.worker_pool.submit_background(
+                        plan, worker_config, WorkerTrigger::Continuous, conflict_resolver,
+                    ).await;
                 } else {
                     // 旧文件不存在本地，直接下载到新位置
                     let remote_entry = self.get_remote_entry_or_fallback(new_entry).await;
@@ -839,48 +871,27 @@ impl SyncEngine {
                 );
                 tracing::info!("[远程事件] 移动: {} -> {}", old_relative, new_relative);
 
+                // 抑制本地 debouncer 自触发事件
+                let now = std::time::Instant::now();
+                self.suppress_paths.insert(old_relative.clone(), now);
+                self.suppress_paths.insert(new_relative.clone(), now);
+
                 let old_local_path = local_root.join(&old_relative);
-                let new_local_path = local_root.join(&new_relative);
 
                 if old_local_path.exists() {
-                    if let Some(parent) = new_local_path.parent() {
-                        let _ = tokio::fs::create_dir_all(parent).await;
-                    }
-                    match tokio::fs::rename(&old_local_path, &new_local_path).await {
-                        Ok(_) => {
-                            tracing::info!("[远程事件] 本地文件移动成功: {} -> {}", old_relative, new_relative);
-                            let _ = self.db.update_file_mapping_path(
-                                &root_id, &old_relative, &new_relative, &new_entry.uri,
-                            ).await;
-                            let now = std::time::Instant::now();
-                            self.suppress_paths.insert(old_relative.clone(), now);
-                            self.suppress_paths.insert(new_relative.clone(), now);
-                        }
-                        Err(e) => {
-                            tracing::warn!("[远程事件] 本地移动失败，回退到删除+下载: {}: {}", new_relative, e);
-                            let _ = tokio::fs::remove_file(&old_local_path).await;
-                            let _ = self.db.delete_file_mapping(&root_id, &old_relative).await;
-                            let now = std::time::Instant::now();
-                            self.suppress_paths.insert(old_relative.clone(), now);
-                            self.suppress_paths.insert(new_relative.clone(), now);
-
-                            let remote_entry = self.get_remote_entry_or_fallback(new_entry).await;
-                            let plan = SyncPlan {
-                                downloads: vec![SyncAction {
-                                    relative_path: new_relative,
-                                    local_entry: None,
-                                    remote_entry: Some(remote_entry),
-                                    db_mapping: None,
-                                }],
-                                ..Default::default()
-                            };
-                            let worker_config = self.snapshot_worker_config().await;
-                            let conflict_resolver = self.conflict.read().await.clone();
-                            self.worker_pool.submit_background(
-                                plan, worker_config, WorkerTrigger::Continuous, conflict_resolver,
-                            ).await;
-                        }
-                    }
+                    let plan = SyncPlan {
+                        move_local: vec![LocalRenameAction {
+                            old_relative_path: old_relative,
+                            new_relative_path: new_relative,
+                            new_remote_uri: new_entry.uri.clone(),
+                        }],
+                        ..Default::default()
+                    };
+                    let worker_config = self.snapshot_worker_config().await;
+                    let conflict_resolver = self.conflict.read().await.clone();
+                    self.worker_pool.submit_background(
+                        plan, worker_config, WorkerTrigger::Continuous, conflict_resolver,
+                    ).await;
                 } else {
                     let remote_entry = self.get_remote_entry_or_fallback(new_entry).await;
                     let plan = SyncPlan {
@@ -1141,7 +1152,7 @@ fn event_type_name(event: &RemoteFileEvent) -> &'static str {
 }
 
 /// 从两个绝对路径生成相对于 local_root 的相对路径对
-fn rel_pair(local_root: &std::path::Path, old_path: &std::path::PathBuf, new_path: &std::path::PathBuf) -> Option<(String, String)> {
+fn rel_pair(local_root: &std::path::Path, old_path: &std::path::Path, new_path: &std::path::Path) -> Option<(String, String)> {
     let old_rel = old_path.strip_prefix(local_root).ok()?
         .to_string_lossy().to_string();
     let new_rel = new_path.strip_prefix(local_root).ok()?

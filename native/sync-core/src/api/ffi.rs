@@ -29,7 +29,8 @@ fn config_from_ffi(ffi: SyncConfigFfi) -> crate::models::SyncConfig {
     use std::path::PathBuf;
 
     let sync_mode = match ffi.sync_mode.as_str() {
-        "selective" => SyncMode::Selective,
+        "upload_only" => SyncMode::UploadOnly,
+        "download_only" => SyncMode::DownloadOnly,
         "album" => SyncMode::Album,
         _ => SyncMode::Full,
     };
@@ -60,7 +61,7 @@ fn config_from_ffi(ffi: SyncConfigFfi) -> crate::models::SyncConfig {
         max_concurrent_transfers: ffi.max_concurrent_transfers as usize,
         bandwidth_limit,
         excluded_paths: ffi.excluded_paths,
-        selective_dirs: ffi.selective_dirs,
+        max_workers: ffi.max_workers as usize,
         data_dir: PathBuf::from(&ffi.data_dir),
         client_id: ffi.client_id,
     }
@@ -71,7 +72,8 @@ fn config_to_ffi(c: &crate::models::SyncConfig) -> SyncConfigFfi {
 
     let sync_mode = match c.sync_mode {
         SyncMode::Full => "full",
-        SyncMode::Selective => "selective",
+        SyncMode::UploadOnly => "upload_only",
+        SyncMode::DownloadOnly => "download_only",
         SyncMode::Album => "album",
     };
 
@@ -95,7 +97,7 @@ fn config_to_ffi(c: &crate::models::SyncConfig) -> SyncConfigFfi {
         max_concurrent_transfers: c.max_concurrent_transfers as u32,
         bandwidth_limit_kbps: c.bandwidth_limit.map(|b| b / 1024).unwrap_or(0),
         excluded_paths: c.excluded_paths.clone(),
-        selective_dirs: c.selective_dirs.clone(),
+        max_workers: c.max_workers as u32,
         data_dir: c.data_dir.to_string_lossy().to_string(),
         client_id: c.client_id.clone(),
     }

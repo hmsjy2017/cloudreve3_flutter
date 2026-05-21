@@ -4,6 +4,7 @@ import 'package:logger/logger.dart';
 
 import '../../../data/models/sync_config_model.dart';
 import '../../../data/models/sync_event_model.dart';
+import '../../../data/models/sync_task_model.dart';
 import '../../../services/storage_service.dart';
 import '../../../services/sync_service.dart';
 
@@ -31,6 +32,15 @@ class SyncProvider extends ChangeNotifier {
   String? _currentFile;
   StreamSubscription<SyncEventModel>? _eventSub;
   Timer? _pollTimer;
+  int _pollIntervalSeconds = 1; // 动态调节：活跃1s，空闲3s
+
+  // 任务列表
+  List<SyncTaskModel> _activeTasks = [];
+  List<SyncTaskModel> _recentTasks = [];
+  int _activeWorkerCount = 0;
+  // 任务详情缓存: taskId -> items
+  final Map<String, List<SyncTaskItemModel>> _taskDetailCache = {};
+  bool _recentTasksLoaded = false;
 
   // 持久化的同步配置
   SyncConfigModel? _persistedConfig;
@@ -45,6 +55,9 @@ class SyncProvider extends ChangeNotifier {
   int get downloadingCount => _downloadingCount;
   String? get currentFile => _currentFile;
   SyncConfigModel? get persistedConfig => _persistedConfig;
+  List<SyncTaskModel> get activeTasks => _activeTasks;
+  List<SyncTaskModel> get recentTasks => _recentTasks;
+  int get activeWorkerCount => _activeWorkerCount;
 
   bool get isActive =>
       _state == SyncState.initializing ||
@@ -73,10 +86,11 @@ class SyncProvider extends ChangeNotifier {
           conflictStrategy: configMap['conflictStrategy'] as String? ?? 'keep_both',
           maxConcurrentTransfers: configMap['maxConcurrentTransfers'] as int? ?? 3,
           bandwidthLimitKbps: configMap['bandwidthLimitKbps'] as int? ?? 0,
+          maxWorkers: configMap['maxWorkers'] as int? ?? 0,
           dataDir: configMap['dataDir'] as String? ?? '',
           clientId: configMap['clientId'] as String? ?? '',
         );
-        _log.i('恢复同步配置: 模式=${_persistedConfig!.syncMode}, 冲突=${_persistedConfig!.conflictStrategy}, 并发=${_persistedConfig!.maxConcurrentTransfers}, 带宽=${_persistedConfig!.bandwidthLimitKbps}kbps');
+        _log.i('恢复同步配置: 模式=${_persistedConfig!.syncMode}, 冲突=${_persistedConfig!.conflictStrategy}, 并发=${_persistedConfig!.maxConcurrentTransfers}, 带宽=${_persistedConfig!.bandwidthLimitKbps}kbps, maxWorkers=${_persistedConfig!.maxWorkers}');
       } catch (e) {
         _log.e('恢复同步配置失败: $e');
       }
@@ -101,6 +115,7 @@ class SyncProvider extends ChangeNotifier {
       'conflictStrategy': config.conflictStrategy,
       'maxConcurrentTransfers': config.maxConcurrentTransfers,
       'bandwidthLimitKbps': config.bandwidthLimitKbps,
+      'maxWorkers': config.maxWorkers,
       'dataDir': config.dataDir,
       'clientId': config.clientId,
     });
@@ -175,12 +190,10 @@ class SyncProvider extends ChangeNotifier {
   }
 
   /// 自动恢复同步（启动时调用，如果之前处于同步状态则恢复）
-  /// [currentAccessToken] 和 [currentRefreshToken] 用于更新过期的 token
   Future<void> autoResumeIfNeeded({
     String? currentAccessToken,
     String? currentRefreshToken,
   }) async {
-    // 确保持久化配置已加载
     if (_persistedConfig == null) {
       await restoreFromStorage();
     }
@@ -193,7 +206,6 @@ class SyncProvider extends ChangeNotifier {
 
     _log.i('自动恢复同步，上次状态: $savedState');
 
-    // 用最新的 token 更新配置
     var config = _persistedConfig!;
     if (currentAccessToken != null && currentRefreshToken != null) {
       config = config.copyWith(
@@ -207,10 +219,8 @@ class SyncProvider extends ChangeNotifier {
 
   /// 热更新配置（同步运行中修改配置，无需重启引擎）
   Future<void> updateConfig(SyncConfigModel config) async {
-    // 持久化新配置
     await _persistConfig(config);
 
-    // 如果引擎正在运行，推送到 Rust
     if (isActive || isPaused) {
       try {
         await SyncService.instance.updateConfig(config);
@@ -221,13 +231,22 @@ class SyncProvider extends ChangeNotifier {
     }
   }
 
-  /// 轮询 Rust 引擎状态
+  /// 轮询 Rust 引擎状态（动态间隔：活跃1s，空闲3s）
   void _startPolling() {
     _pollTimer?.cancel();
+    _pollIntervalSeconds = isActive || isPaused ? 1 : 3;
     _pollTimer = Timer.periodic(
-      const Duration(seconds: 2),
+      Duration(seconds: _pollIntervalSeconds),
       (_) => _pollStatus(),
     );
+  }
+
+  void _adjustPollInterval() {
+    final target = isActive || isPaused ? 1 : 3;
+    if (target != _pollIntervalSeconds) {
+      _pollIntervalSeconds = target;
+      _startPolling();
+    }
   }
 
   void _stopPolling() {
@@ -244,7 +263,6 @@ class SyncProvider extends ChangeNotifier {
       _downloadingCount = status.downloadingCount;
       _conflictCount = status.conflictCount;
 
-      // 仅当 Rust 端状态与当前不一致时更新
       final rustState = _parseState(status.state);
       if (rustState != _state && rustState != SyncState.idle) {
         _state = rustState;
@@ -254,10 +272,69 @@ class SyncProvider extends ChangeNotifier {
         _errorMessage = status.errorMessage;
       }
 
+      // 轮询活跃任务 + 刷新已完成任务
+      try {
+        final newActiveWorkerCount = await SyncService.instance.getActiveWorkerCount();
+        final newActiveTasks = await SyncService.instance.getActiveTasksTyped();
+
+        bool changed = newActiveWorkerCount != _activeWorkerCount;
+        _activeWorkerCount = newActiveWorkerCount;
+
+        // 活跃任务列表有变化时才更新
+        if (!_taskListEqual(newActiveTasks, _activeTasks)) {
+          _activeTasks = newActiveTasks;
+          changed = true;
+          // 清除不再活跃的任务的详情缓存
+          _taskDetailCache.removeWhere(
+            (key, _) => !newActiveTasks.any((t) => t.id == key),
+          );
+        }
+
+        // 同步运行中：每次轮询刷新已完成任务（快任务可能在两次轮询间完成）
+        if (_recentTasksLoaded && isActive) {
+          await _refreshRecentTasks();
+        }
+        // Worker 从有变无时也刷新（覆盖停止/错误等非活跃场景）
+        if (_activeWorkerCount == 0 && _recentTasksLoaded) {
+          await _refreshRecentTasks();
+        }
+
+        if (changed) notifyListeners();
+        else notifyListeners();
+      } catch (_) {}
+
       notifyListeners();
-    } catch (_) {
-      // 轮询失败不影响 UI
+      _adjustPollInterval();
+    } catch (_) {}
+  }
+
+  /// 首次加载已完成任务
+  Future<void> loadRecentTasks() async {
+    if (_recentTasksLoaded) return;
+    await _refreshRecentTasks();
+  }
+
+  Future<void> _refreshRecentTasks() async {
+    try {
+      final tasks = await SyncService.instance.getRecentTasksTyped();
+      if (!_taskListEqual(tasks, _recentTasks)) {
+        _recentTasks = tasks;
+      }
+      _recentTasksLoaded = true;
+    } catch (_) {}
+  }
+
+  bool _taskListEqual(List<SyncTaskModel> a, List<SyncTaskModel> b) {
+    if (a.length != b.length) return false;
+    for (int i = 0; i < a.length; i++) {
+      if (a[i].id != b[i].id ||
+          a[i].completedCount != b[i].completedCount ||
+          a[i].failedCount != b[i].failedCount ||
+          a[i].status != b[i].status) {
+        return false;
+      }
     }
+    return true;
   }
 
   void _subscribeEvents() {
@@ -311,7 +388,33 @@ class SyncProvider extends ChangeNotifier {
 
   void _handleTokenExpired() {
     _log.w('Token 过期，需要刷新');
-    // TODO: 通过 Provider 作用域获取 AuthProvider 刷新 Token
+  }
+
+  /// 获取任务详情（带缓存）
+  Future<List<SyncTaskItemModel>> getTaskDetail(String taskId) async {
+    if (_taskDetailCache.containsKey(taskId)) {
+      return _taskDetailCache[taskId]!;
+    }
+    final items = await SyncService.instance.getTaskDetailTyped(taskId);
+    _taskDetailCache[taskId] = items;
+    notifyListeners();
+    return items;
+  }
+
+  /// 读取缓存的任务详情（同步，无则返回 null）
+  List<SyncTaskItemModel>? getCachedTaskDetail(String taskId) {
+    return _taskDetailCache[taskId];
+  }
+
+  /// 清除任务详情缓存，下次获取时重新请求
+  void invalidateTaskDetail(String taskId) {
+    _taskDetailCache.remove(taskId);
+  }
+
+  /// 清除所有任务详情缓存
+  void invalidateAllTaskDetails() {
+    _taskDetailCache.clear();
+    _recentTasksLoaded = false;
   }
 
   /// 暂停同步

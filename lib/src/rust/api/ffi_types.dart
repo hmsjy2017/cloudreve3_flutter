@@ -52,18 +52,18 @@ final String conflictStrategy;
 final int maxConcurrentTransfers;
 final BigInt bandwidthLimitKbps;
 final List<String> excludedPaths;
-final List<String> selectiveDirs;
+final int maxWorkers;
 final String dataDir;
 	final String clientId;
 
-                const SyncConfigFfi({required this.baseUrl ,required this.accessToken ,required this.refreshToken ,required this.localRoot ,required this.remoteRoot ,required this.syncMode ,required this.conflictStrategy ,required this.maxConcurrentTransfers ,required this.bandwidthLimitKbps ,required this.excludedPaths ,required this.selectiveDirs ,required this.dataDir ,required this.clientId ,});
+                const SyncConfigFfi({required this.baseUrl ,required this.accessToken ,required this.refreshToken ,required this.localRoot ,required this.remoteRoot ,required this.syncMode ,required this.conflictStrategy ,required this.maxConcurrentTransfers ,required this.bandwidthLimitKbps ,required this.excludedPaths ,required this.maxWorkers ,required this.dataDir ,required this.clientId ,});
 
                 
                 
 
                 
         @override
-        int get hashCode => baseUrl.hashCode^accessToken.hashCode^refreshToken.hashCode^localRoot.hashCode^remoteRoot.hashCode^syncMode.hashCode^conflictStrategy.hashCode^maxConcurrentTransfers.hashCode^bandwidthLimitKbps.hashCode^excludedPaths.hashCode^selectiveDirs.hashCode^dataDir.hashCode^clientId.hashCode;
+        int get hashCode => baseUrl.hashCode^accessToken.hashCode^refreshToken.hashCode^localRoot.hashCode^remoteRoot.hashCode^syncMode.hashCode^conflictStrategy.hashCode^maxConcurrentTransfers.hashCode^bandwidthLimitKbps.hashCode^excludedPaths.hashCode^maxWorkers.hashCode^dataDir.hashCode^clientId.hashCode;
         
 
                 
@@ -72,7 +72,7 @@ final String dataDir;
             identical(this, other) ||
             other is SyncConfigFfi &&
                 runtimeType == other.runtimeType
-                && baseUrl == other.baseUrl&& accessToken == other.accessToken&& refreshToken == other.refreshToken&& localRoot == other.localRoot&& remoteRoot == other.remoteRoot&& syncMode == other.syncMode&& conflictStrategy == other.conflictStrategy&& maxConcurrentTransfers == other.maxConcurrentTransfers&& bandwidthLimitKbps == other.bandwidthLimitKbps&& excludedPaths == other.excludedPaths&& selectiveDirs == other.selectiveDirs&& dataDir == other.dataDir&& clientId == other.clientId;
+                && baseUrl == other.baseUrl&& accessToken == other.accessToken&& refreshToken == other.refreshToken&& localRoot == other.localRoot&& remoteRoot == other.remoteRoot&& syncMode == other.syncMode&& conflictStrategy == other.conflictStrategy&& maxConcurrentTransfers == other.maxConcurrentTransfers&& bandwidthLimitKbps == other.bandwidthLimitKbps&& excludedPaths == other.excludedPaths&& maxWorkers == other.maxWorkers&& dataDir == other.dataDir&& clientId == other.clientId;
         
             }
 

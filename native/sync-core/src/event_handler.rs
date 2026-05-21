@@ -1,12 +1,84 @@
 use crate::api_client::ApiClient;
 use crate::errors::Result;
 use crate::models::{RemoteFileEntry, RemoteFileEvent};
-use eventsource::event::{parse_event_line, Event, ParseResult};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::mpsc;
+
+// ===== 最小 SSE 解析器（替代 eventsource crate）=====
+
+#[derive(Default)]
+struct SseEvent {
+    event_type: Option<String>,
+    data: String,
+    id: Option<String>,
+}
+
+impl SseEvent {
+    fn new() -> Self {
+        Self::default()
+    }
+
+    fn is_empty(&self) -> bool {
+        self.event_type.is_none() && self.data.is_empty()
+    }
+
+    fn clear(&mut self) {
+        self.event_type = None;
+        self.data.clear();
+        self.id = None;
+    }
+}
+
+enum SseParseResult {
+    Next,
+    Dispatch,
+    SetRetry(Duration),
+}
+
+fn sse_parse_line(line: &str, event: &mut SseEvent) -> SseParseResult {
+    let line = line.trim_end_matches(['\r', '\n']);
+
+    if line.is_empty() {
+        if event.is_empty() {
+            return SseParseResult::Next;
+        }
+        return SseParseResult::Dispatch;
+    }
+
+    if line.starts_with(':') {
+        return SseParseResult::Next;
+    }
+
+    let (field, value) = if let Some(colon_pos) = line.find(':') {
+        let field = &line[..colon_pos];
+        let value = line[colon_pos + 1..].strip_prefix(' ').unwrap_or(&line[colon_pos + 1..]);
+        (field, value)
+    } else {
+        (line, "")
+    };
+
+    match field {
+        "event" => event.event_type = Some(value.to_string()),
+        "data" => {
+            if !event.data.is_empty() {
+                event.data.push('\n');
+            }
+            event.data.push_str(value);
+        }
+        "id" => event.id = Some(value.to_string()),
+        "retry" => {
+            if let Ok(ms) = value.parse::<u64>() {
+                return SseParseResult::SetRetry(Duration::from_millis(ms));
+            }
+        }
+        _ => {}
+    }
+
+    SseParseResult::Next
+}
 
 pub struct EventHandler {
     api: Arc<ApiClient>,
@@ -88,7 +160,7 @@ impl EventHandler {
         use futures_util::StreamExt;
 
         let mut line_buf = String::new();
-        let mut event = Event::new();
+        let mut event = SseEvent::new();
         let mut event_count: u64 = 0;
 
         while let Some(chunk) = stream.next().await {
@@ -100,9 +172,9 @@ impl EventHandler {
                 let line = line_buf[..=newline_pos].to_string();
                 line_buf = line_buf[newline_pos + 1..].to_string();
 
-                match parse_event_line(&line, &mut event) {
-                    ParseResult::Next => {}
-                    ParseResult::Dispatch => {
+                match sse_parse_line(&line, &mut event) {
+                    SseParseResult::Next => {}
+                    SseParseResult::Dispatch => {
                         if event.is_empty() {
                             event.clear();
                             continue;
@@ -151,7 +223,7 @@ impl EventHandler {
 
                         event.clear();
                     }
-                    ParseResult::SetRetry(retry) => {
+                    SseParseResult::SetRetry(retry) => {
                         tracing::debug!("[SSE] 服务端设置重试间隔: {:?}", retry);
                     }
                 }

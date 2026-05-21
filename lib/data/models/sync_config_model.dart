@@ -11,7 +11,7 @@ class SyncConfigModel {
   final int maxConcurrentTransfers;
   final int bandwidthLimitKbps;
   final List<String> excludedPaths;
-  final List<String> selectiveDirs;
+  final int maxWorkers;
   final String dataDir;
   final String clientId;
 
@@ -28,7 +28,7 @@ class SyncConfigModel {
     this.maxConcurrentTransfers = 3,
     this.bandwidthLimitKbps = 0,
     this.excludedPaths = const [],
-    this.selectiveDirs = const [],
+    this.maxWorkers = 0,
   });
 
   SyncConfigModel copyWith({
@@ -42,7 +42,7 @@ class SyncConfigModel {
     int? maxConcurrentTransfers,
     int? bandwidthLimitKbps,
     List<String>? excludedPaths,
-    List<String>? selectiveDirs,
+    int? maxWorkers,
     String? dataDir,
     String? clientId,
   }) {
@@ -58,7 +58,7 @@ class SyncConfigModel {
           maxConcurrentTransfers ?? this.maxConcurrentTransfers,
       bandwidthLimitKbps: bandwidthLimitKbps ?? this.bandwidthLimitKbps,
       excludedPaths: excludedPaths ?? this.excludedPaths,
-      selectiveDirs: selectiveDirs ?? this.selectiveDirs,
+      maxWorkers: maxWorkers ?? this.maxWorkers,
       dataDir: dataDir ?? this.dataDir,
       clientId: clientId ?? this.clientId,
     );
@@ -76,7 +76,7 @@ class SyncConfigModel {
       maxConcurrentTransfers: maxConcurrentTransfers,
       bandwidthLimitKbps: BigInt.from(bandwidthLimitKbps),
       excludedPaths: excludedPaths,
-      selectiveDirs: selectiveDirs,
+      maxWorkers: maxWorkers,
       dataDir: dataDir,
       clientId: clientId,
     );
@@ -94,7 +94,7 @@ class SyncConfigModel {
       maxConcurrentTransfers: ffi.maxConcurrentTransfers,
       bandwidthLimitKbps: ffi.bandwidthLimitKbps.toInt(),
       excludedPaths: ffi.excludedPaths,
-      selectiveDirs: ffi.selectiveDirs,
+      maxWorkers: ffi.maxWorkers,
       dataDir: ffi.dataDir,
       clientId: ffi.clientId,
     );

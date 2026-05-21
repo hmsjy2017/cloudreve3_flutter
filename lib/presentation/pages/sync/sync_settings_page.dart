@@ -3,13 +3,16 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:open_file/open_file.dart';
 
 import '../../../core/constants/sync_defaults.dart';
 import '../../../data/models/sync_config_model.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/sync_provider.dart';
 import '../../widgets/desktop_constrained.dart';
+import '../../widgets/folder_picker.dart';
 import '../../widgets/toast_helper.dart';
+import 'sync_log_viewer_page.dart';
 
 /// 同步设置页面
 class SyncSettingsPage extends StatefulWidget {
@@ -26,6 +29,9 @@ class _SyncSettingsPageState extends State<SyncSettingsPage> {
   String _conflictStrategy = 'keep_both';
   int _maxConcurrent = 3;
   int _bandwidthLimitKbps = 0;
+  int _maxWorkers = SyncDefaults.defaultMaxWorkers;
+  String _syncLogFilePath = '';
+  int? _syncLogFileSize;
 
   @override
   void initState() {
@@ -34,7 +40,6 @@ class _SyncSettingsPageState extends State<SyncSettingsPage> {
       text: SyncDefaults.defaultLocalRoot(),
     );
 
-    // 从持久化配置恢复 UI 状态
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final sync = context.read<SyncProvider>();
       final config = sync.persistedConfig;
@@ -46,8 +51,10 @@ class _SyncSettingsPageState extends State<SyncSettingsPage> {
           _conflictStrategy = config.conflictStrategy;
           _maxConcurrent = config.maxConcurrentTransfers;
           _bandwidthLimitKbps = config.bandwidthLimitKbps;
+          _maxWorkers = config.maxWorkers;
         });
       }
+      _loadSyncLogInfo();
     });
   }
 
@@ -56,6 +63,8 @@ class _SyncSettingsPageState extends State<SyncSettingsPage> {
     _localRootController.dispose();
     super.dispose();
   }
+
+  bool get _isDesktop => Platform.isWindows || Platform.isLinux;
 
   @override
   Widget build(BuildContext context) {
@@ -68,69 +77,96 @@ class _SyncSettingsPageState extends State<SyncSettingsPage> {
         child: ListView(
           children: [
             _buildSyncStatus(sync),
-            _buildSection(
-              title: '同步目录',
-              children: [
-                ListTile(
-                  leading: const Icon(Icons.folder_outlined),
-                  title: const Text('本地同步目录'),
-                  subtitle: Text(_localRootController.text),
-                  trailing: const Icon(Icons.chevron_right),
-                  onTap: () => _pickLocalFolder(),
-                ),
-                ListTile(
-                  leading: const Icon(Icons.cloud_outlined),
-                  title: const Text('远程同步目录'),
-                  subtitle: Text(_remoteRoot),
-                  trailing: const Icon(Icons.chevron_right),
-                  onTap: () => _editRemoteRoot(),
-                ),
-              ],
-            ),
-            _buildSection(
-              title: '同步模式',
-              children: [
-                RadioGroup<String>(
-                  groupValue: _syncMode,
-                  onChanged: (v) { if (v != null) { setState(() => _syncMode = v); _pushConfigIfActive(); } },
-                  child: Column(
-                    children: [
-                      RadioListTile<String>(
-                        title: const Text('全量同步'),
-                        subtitle: const Text('双向同步所有文件'),
-                        value: 'full',
-                      ),
-                      RadioListTile<String>(
-                        title: const Text('选择性同步'),
-                        subtitle: const Text('仅同步指定目录'),
-                        value: 'selective',
-                      ),
-                      if (Platform.isAndroid)
-                        RadioListTile<String>(
-                          title: const Text('相册同步'),
-                          subtitle: const Text('自动备份手机照片到云端'),
-                          value: 'album',
-                        ),
-                    ],
+            if (_isDesktop) ...[
+              _buildSection(
+                title: '同步目录',
+                children: [
+                  ListTile(
+                    leading: const Icon(Icons.folder_outlined),
+                    title: const Text('本地同步目录'),
+                    subtitle: Text(_localRootController.text),
+                    trailing: const Icon(Icons.chevron_right),
+                    onTap: () => _pickLocalFolder(),
                   ),
+                  ListTile(
+                    leading: const Icon(Icons.cloud_outlined),
+                    title: const Text('远程同步目录'),
+                    subtitle: Text(_remoteRoot),
+                    trailing: const Icon(Icons.chevron_right),
+                    onTap: () => _pickRemoteFolder(),
+                  ),
+                ],
+              ),
+              _buildSection(
+                title: '同步模式',
+                children: [
+                  RadioGroup<String>(
+                    groupValue: _syncMode,
+                    onChanged: (v) {
+                      if (v != null) _handleSyncModeChange(v);
+                    },
+                    child: Column(
+                      children: [
+                        RadioListTile<String>(
+                          title: const Text('全量同步'),
+                          subtitle: const Text('双向同步所有文件'),
+                          value: 'full',
+                        ),
+                        RadioListTile<String>(
+                          title: const Text('仅上传本地到远程'),
+                          subtitle: const Text('本地文件同步到远程，不影响远程已有文件'),
+                          value: 'upload_only',
+                        ),
+                        RadioListTile<String>(
+                          title: const Text('仅下载远程到本地'),
+                          subtitle: const Text('远程文件同步到本地，本地修改不影响远程'),
+                          value: 'download_only',
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              if (_syncMode == 'full')
+                _buildSection(
+                  title: '冲突处理',
+                  children: [
+                    ListTile(
+                      leading: const Icon(Icons.merge_outlined),
+                      title: const Text('冲突解决策略'),
+                      subtitle: Text(_conflictStrategyLabel(_conflictStrategy)),
+                      trailing: const Icon(Icons.chevron_right),
+                      onTap: () => _pickConflictStrategy(),
+                    ),
+                  ],
                 ),
-              ],
-            ),
-            _buildSection(
-              title: '冲突处理',
-              children: [
-                ListTile(
-                  leading: const Icon(Icons.merge_outlined),
-                  title: const Text('冲突解决策略'),
-                  subtitle: Text(_conflictStrategyLabel(_conflictStrategy)),
-                  trailing: const Icon(Icons.chevron_right),
-                  onTap: () => _pickConflictStrategy(),
-                ),
-              ],
-            ),
+            ],
+            if (Platform.isAndroid)
+              _buildSection(
+                title: '相册同步',
+                children: [
+                  SwitchListTile(
+                    title: const Text('自动备份相册'),
+                    subtitle: const Text('将手机照片自动备份到云端'),
+                    value: _syncMode == 'album',
+                    onChanged: (v) {
+                      setState(() => _syncMode = v ? 'album' : 'full');
+                      _pushConfigIfActive();
+                    },
+                  ),
+                ],
+              ),
             _buildSection(
               title: '性能',
               children: [
+                if (_isDesktop)
+                  ListTile(
+                    leading: const Icon(Icons.work_outline),
+                    title: const Text('最大并发任务数'),
+                    subtitle: Text(_maxWorkersLabel),
+                    trailing: const Icon(Icons.chevron_right),
+                    onTap: () => _pickMaxWorkers(),
+                  ),
                 ListTile(
                   leading: const Icon(Icons.sync_outlined),
                   title: const Text('最大并发传输数'),
@@ -148,6 +184,50 @@ class _SyncSettingsPageState extends State<SyncSettingsPage> {
                   ),
                   trailing: const Icon(Icons.chevron_right),
                   onTap: () => _pickBandwidthLimit(),
+                ),
+              ],
+            ),
+            _buildSection(
+              title: '同步日志',
+              children: [
+                ListTile(
+                  title: const Text('日志文件路径'),
+                  subtitle: Text(
+                    _syncLogFilePath.isNotEmpty ? _syncLogFilePath : '未初始化',
+                    style: const TextStyle(fontSize: 11),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+                ListTile(
+                  title: const Text('日志文件大小'),
+                  subtitle: Text(_formatBytes(_syncLogFileSize)),
+                ),
+                if (!Platform.isAndroid)
+                  ListTile(
+                    leading: const Icon(Icons.folder_open),
+                    title: const Text('打开日志目录'),
+                    trailing: const Icon(Icons.chevron_right),
+                    onTap: _openSyncLogFolder,
+                  ),
+                ListTile(
+                  leading: const Icon(Icons.file_download_outlined),
+                  title: const Text('导出日志'),
+                  subtitle: const Text('导出到 Download 目录'),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: _exportSyncLog,
+                ),
+                ListTile(
+                  leading: const Icon(Icons.visibility_outlined),
+                  title: const Text('预览日志'),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: _previewSyncLog,
+                ),
+                ListTile(
+                  leading: const Icon(Icons.delete_outline, color: Colors.red),
+                  title: const Text('清空日志'),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: _clearSyncLog,
                 ),
               ],
             ),
@@ -207,6 +287,66 @@ class _SyncSettingsPageState extends State<SyncSettingsPage> {
             const SizedBox(height: 32),
           ],
         ),
+      ),
+    );
+  }
+
+  String get _maxWorkersLabel {
+    if (_maxWorkers == 0) return '自动 (CPU核心数)';
+    return '$_maxWorkers';
+  }
+
+  Future<void> _handleSyncModeChange(String newMode) async {
+    if (newMode == 'upload_only') {
+      final confirmed = await _showModeConfirmDialog(
+        title: '仅上传本地到远程',
+        description: '此模式下：\n\n'
+            '• 本地新增、修改的文件将上传到远程\n'
+            '• 本地重命名、移动的文件会在远程同步操作\n'
+            '• 本地删除的文件不会删除远程副本\n'
+            '• 不会下载远程新增或修改的文件\n'
+            '• 不监听远程事件（不消耗 SSE 连接）\n\n'
+            '适用于只需要备份本地文件到云端的场景。',
+      );
+      if (confirmed != true) return;
+    } else if (newMode == 'download_only') {
+      final confirmed = await _showModeConfirmDialog(
+        title: '仅下载远程到本地',
+        description: '此模式下：\n\n'
+            '• 远程新增、修改的文件将下载到本地\n'
+            '• 远程删除的文件将同步删除本地副本\n'
+            '• 远程重命名、移动会在本地同步\n'
+            '• 本地的所有增删改操作不会影响远程\n'
+            '• 本地删除的文件如果远程仍存在会重新下载\n'
+            '• 不监听本地文件变化\n\n'
+            '适用于只需要在本地保留远程副本的场景。',
+      );
+      if (confirmed != true) return;
+    }
+
+    setState(() => _syncMode = newMode);
+    _pushConfigIfActive();
+  }
+
+  Future<bool?> _showModeConfirmDialog({
+    required String title,
+    required String description,
+  }) {
+    return showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(title),
+        content: Text(description),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('确认切换'),
+          ),
+        ],
       ),
     );
   }
@@ -367,17 +507,17 @@ class _SyncSettingsPageState extends State<SyncSettingsPage> {
     }
   }
 
-  Future<void> _editRemoteRoot() async {
-    final controller = TextEditingController(text: _remoteRoot);
+  Future<void> _pickRemoteFolder() async {
     final result = await showDialog<String>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('远程同步目录'),
-        content: TextField(
-          controller: controller,
-          decoration: const InputDecoration(
-            hintText: 'cloudreve://my',
-            border: OutlineInputBorder(),
+        title: const Text('选择远程同步目录'),
+        content: SizedBox(
+          width: 400,
+          height: 500,
+          child: FolderPicker(
+            currentPath: _remoteRoot,
+            onFolderSelected: (path) => Navigator.pop(ctx, path),
           ),
         ),
         actions: [
@@ -385,15 +525,15 @@ class _SyncSettingsPageState extends State<SyncSettingsPage> {
             onPressed: () => Navigator.pop(ctx),
             child: const Text('取消'),
           ),
-          FilledButton(
-            onPressed: () => Navigator.pop(ctx, controller.text),
-            child: const Text('确定'),
-          ),
         ],
       ),
     );
     if (result != null && result.isNotEmpty) {
-      setState(() => _remoteRoot = result);
+      setState(() {
+        _remoteRoot = result == '/'
+            ? SyncDefaults.defaultRemoteRoot
+            : '${SyncDefaults.defaultRemoteRoot}${result.startsWith('/') ? result : '/$result'}';
+      });
     }
   }
 
@@ -472,6 +612,53 @@ class _SyncSettingsPageState extends State<SyncSettingsPage> {
     }
   }
 
+  Future<void> _pickMaxWorkers() async {
+    final controller = TextEditingController(text: _maxWorkers.toString());
+    final result = await showDialog<int>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('最大并发任务数'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: controller,
+              keyboardType: TextInputType.number,
+              decoration: const InputDecoration(
+                hintText: '0 = 自动 (CPU核心数)',
+                border: OutlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              '0 表示自动等于 CPU 核心数\n最大不超过 CPU 核心数的 2 倍，超出无效',
+              style: Theme.of(ctx).textTheme.bodySmall?.copyWith(
+                    color: Theme.of(ctx).hintColor,
+                  ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () {
+              final val = int.tryParse(controller.text) ?? 0;
+              Navigator.pop(ctx, val.clamp(0, 999));
+            },
+            child: const Text('确定'),
+          ),
+        ],
+      ),
+    );
+    if (result != null) {
+      setState(() => _maxWorkers = result);
+      _pushConfigIfActive();
+    }
+  }
+
   Future<void> _pickBandwidthLimit() async {
     final options = [
       (0, '不限制'),
@@ -512,7 +699,6 @@ class _SyncSettingsPageState extends State<SyncSettingsPage> {
     }
   }
 
-  /// 配置变更后，如果引擎在运行中，实时推送到 Rust
   void _pushConfigIfActive() {
     final sync = context.read<SyncProvider>();
     if (!sync.isActive && !sync.isPaused) return;
@@ -525,6 +711,7 @@ class _SyncSettingsPageState extends State<SyncSettingsPage> {
       conflictStrategy: _conflictStrategy,
       maxConcurrentTransfers: _maxConcurrent,
       bandwidthLimitKbps: _bandwidthLimitKbps,
+      maxWorkers: _maxWorkers,
     );
     sync.updateConfig(updated);
   }
@@ -549,6 +736,7 @@ class _SyncSettingsPageState extends State<SyncSettingsPage> {
       conflictStrategy: _conflictStrategy,
       maxConcurrentTransfers: _maxConcurrent,
       bandwidthLimitKbps: _bandwidthLimitKbps,
+      maxWorkers: _maxWorkers,
       dataDir: appSupportDir.path,
       clientId: '',
     );
@@ -580,6 +768,112 @@ class _SyncSettingsPageState extends State<SyncSettingsPage> {
 
     if (confirmed == true) {
       await sync.stop();
+    }
+  }
+
+  // ===== 同步日志 =====
+
+  Future<String> _getSyncLogPath() async {
+    final appDir = await getApplicationSupportDirectory();
+    return '${appDir.path}${Platform.pathSeparator}sync_core${Platform.pathSeparator}logs${Platform.pathSeparator}sync_log.txt';
+  }
+
+  Future<void> _loadSyncLogInfo() async {
+    final path = await _getSyncLogPath();
+    final file = File(path);
+    int? size;
+    if (await file.exists()) {
+      size = await file.length();
+    }
+    if (mounted) {
+      setState(() {
+        _syncLogFilePath = path;
+        _syncLogFileSize = size;
+      });
+    }
+  }
+
+  String _formatBytes(int? bytes) {
+    if (bytes == null) return '未知';
+    if (bytes < 1024) return '$bytes B';
+    if (bytes < 1024 * 1024) return '${(bytes / 1024).toStringAsFixed(1)} KB';
+    return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
+  }
+
+  Future<void> _openSyncLogFolder() async {
+    try {
+      if (_syncLogFilePath.isEmpty) {
+        ToastHelper.error('日志文件路径未获取');
+        return;
+      }
+      final dir = File(_syncLogFilePath).parent.path;
+      final result = await OpenFile.open(dir);
+      if (result.type != ResultType.done) {
+        if (mounted) ToastHelper.error('无法打开目录：${result.message}');
+      }
+    } catch (e) {
+      if (mounted) ToastHelper.error('打开目录失败：$e');
+    }
+  }
+
+  Future<void> _exportSyncLog() async {
+    try {
+      final srcPath = await _getSyncLogPath();
+      final srcFile = File(srcPath);
+      if (!await srcFile.exists()) {
+        if (mounted) ToastHelper.error('日志文件不存在');
+        return;
+      }
+      final downloadDir = await getDownloadsDirectory();
+      if (downloadDir == null) {
+        if (mounted) ToastHelper.error('无法获取下载目录');
+        return;
+      }
+      final timestamp = DateTime.now().toIso8601String().replaceAll(':', '-').substring(0, 19);
+      final destPath = '${downloadDir.path}${Platform.pathSeparator}sync_core_log_$timestamp.txt';
+      await srcFile.copy(destPath);
+      if (mounted) ToastHelper.success('日志已导出到：$destPath');
+    } catch (e) {
+      if (mounted) ToastHelper.error('导出日志失败：$e');
+    }
+  }
+
+  Future<void> _previewSyncLog() async {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => const SyncLogViewerPage(),
+      ),
+    );
+  }
+
+  Future<void> _clearSyncLog() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('清空同步日志'),
+        content: const Text('确定要清空同步引擎日志文件内容吗？此操作不可恢复。'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: FilledButton.styleFrom(backgroundColor: Theme.of(ctx).colorScheme.error),
+            child: const Text('清空'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed == true) {
+      final path = await _getSyncLogPath();
+      final file = File(path);
+      if (await file.exists()) {
+        await file.writeAsString('');
+      }
+      await _loadSyncLogInfo();
+      if (mounted) ToastHelper.success('同步日志已清空');
     }
   }
 }

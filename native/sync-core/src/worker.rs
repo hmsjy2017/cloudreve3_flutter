@@ -82,33 +82,40 @@ impl Worker {
         let mut summary = SyncSummary::default();
         let root_id = self.config.sync_root_id.clone();
 
-        // 1. 创建远程目录结构
-        for dir_path in &self.plan.mkdirs_remote {
-            if self.shutdown_token.is_cancelled() { break; }
-            match crate::uploader::ensure_remote_dirs(
-                &tid, &self.config.remote_root, dir_path, &self.api, &self.ensured_dirs,
-            ).await {
-                Ok(_) => tracing::debug!("[{}] 创建远程目录: {}", tid, dir_path),
-                Err(e) => tracing::warn!("[{}] 创建远程目录失败 {}: {}", tid, dir_path, e),
+        // 1. 创建远程目录结构（UploadOnly / Full）
+        if !matches!(self.config.sync_mode, SyncMode::DownloadOnly) {
+            for dir_path in &self.plan.mkdirs_remote {
+                if self.shutdown_token.is_cancelled() { break; }
+                match crate::uploader::ensure_remote_dirs(
+                    &tid, &self.config.remote_root, dir_path, &self.api, &self.ensured_dirs,
+                ).await {
+                    Ok(_) => tracing::debug!("[{}] 创建远程目录: {}", tid, dir_path),
+                    Err(e) => tracing::warn!("[{}] 创建远程目录失败 {}: {}", tid, dir_path, e),
+                }
             }
         }
 
-        // 2. 创建本地目录结构
-        for dir_path in &self.plan.mkdirs_local {
-            if self.shutdown_token.is_cancelled() { break; }
-            let local_path = self.config.local_root.join(dir_path);
-            if let Err(e) = tokio::fs::create_dir_all(&local_path).await {
-                tracing::warn!("[{}] 创建本地目录失败 {}: {}", tid, dir_path, e);
+        // 2. 创建本地目录结构（DownloadOnly / Full）
+        if !matches!(self.config.sync_mode, SyncMode::UploadOnly) {
+            for dir_path in &self.plan.mkdirs_local {
+                if self.shutdown_token.is_cancelled() { break; }
+                let local_path = self.config.local_root.join(dir_path);
+                if let Err(e) = tokio::fs::create_dir_all(&local_path).await {
+                    tracing::warn!("[{}] 创建本地目录失败 {}: {}", tid, dir_path, e);
+                }
             }
         }
 
-        // 2.1 执行远程重命名（本地触发）
+        // 2.1 执行远程重命名（仅 UploadOnly / Full）
+        if !matches!(self.config.sync_mode, SyncMode::DownloadOnly) {
         for rename in &self.plan.rename_remote {
             if self.shutdown_token.is_cancelled() { break; }
+            let rel_path = format!("{} -> {}", rename.old_relative_path, rename.new_relative_path);
             match self.api.rename_file(&rename.remote_uri, &rename.new_name).await {
                 Ok(_) => {
                     tracing::info!("[{}] 远程重命名: {} -> {}", tid, rename.old_relative_path, rename.new_relative_path);
                     summary.renamed += 1;
+                    let _ = self.db.increment_task_completed(&tid).await;
                     let new_remote_uri = {
                         let uri = &rename.remote_uri;
                         let last_slash = uri.trim_end_matches('/').rfind('/').unwrap_or(0);
@@ -117,10 +124,16 @@ impl Worker {
                     let _ = self.db.update_file_mapping_path(
                         &root_id, &rename.old_relative_path, &rename.new_relative_path, &new_remote_uri,
                     ).await;
+                    let _ = self.db.update_task_item_status_by_path(
+                        &tid, &rel_path, "rename", &TaskItemStatus::Completed, None,
+                    ).await;
                 }
                 Err(e) => {
                     tracing::error!("[{}] 远程重命名失败: {} -> {}: {}", tid, rename.old_relative_path, rename.new_relative_path, e);
                     summary.failed += 1;
+                    let _ = self.db.update_task_item_status_by_path(
+                        &tid, &rel_path, "rename", &TaskItemStatus::Failed, Some(&e.to_string()),
+                    ).await;
                 }
             }
         }
@@ -128,23 +141,31 @@ impl Worker {
         // 2.2 执行远程移动（本地触发）
         for mov in &self.plan.move_remote {
             if self.shutdown_token.is_cancelled() { break; }
-            // copy=false 表示移动
+            let rel_path = format!("{} -> {}", mov.old_relative_path, mov.new_relative_path);
             match self.api.move_files(&[&mov.remote_uri], &mov.dst_remote_dir_uri, false).await {
                 Ok(_) => {
                     tracing::info!("[{}] 远程移动: {} -> {}", tid, mov.old_relative_path, mov.new_relative_path);
                     summary.moved += 1;
+                    let _ = self.db.increment_task_completed(&tid).await;
                     let _ = self.db.update_file_mapping_path(
                         &root_id, &mov.old_relative_path, &mov.new_relative_path, &mov.dst_remote_dir_uri,
+                    ).await;
+                    let _ = self.db.update_task_item_status_by_path(
+                        &tid, &rel_path, "move", &TaskItemStatus::Completed, None,
                     ).await;
                 }
                 Err(e) => {
                     tracing::error!("[{}] 远程移动失败: {} -> {}: {}", tid, mov.old_relative_path, mov.new_relative_path, e);
                     summary.failed += 1;
+                    let _ = self.db.update_task_item_status_by_path(
+                        &tid, &rel_path, "move", &TaskItemStatus::Failed, Some(&e.to_string()),
+                    ).await;
                 }
             }
         }
+        } // end UploadOnly/Full check for rename+move
 
-        // 2.5 递归扫描 scan_dirs 中的目录，将文件加入 uploads
+        // 2.5 递归扫描 scan_dirs 中的目录，将文件加入 uploads（UploadOnly / Full）
         if !self.plan.scan_dirs.is_empty() {
             tracing::info!("[{}] 开始递归扫描 {} 个目录", tid, self.plan.scan_dirs.len());
             let scanner = crate::fs_scanner::FsScanner::new();
@@ -277,6 +298,7 @@ impl Worker {
 
             tracing::info!("[{}] 冲突解决: {} → {:?}", tid, conflict.relative_path, resolution);
 
+            let mut conflict_ok = false;
             match resolution {
                 ConflictResolution::UploadLocal => {
                     if let Some(ref local) = conflict.local_entry {
@@ -290,7 +312,7 @@ impl Worker {
                             &tid, &action, &self.config, &self.api, &self.db,
                             &self.file_locks, &self.ensured_dirs, &transfer_semaphore, &root_id,
                         ).await {
-                            Ok(_) => summary.uploaded += 1,
+                            Ok(_) => { summary.uploaded += 1; conflict_ok = true; }
                             Err(e) => {
                                 tracing::error!("[{}] 冲突上传失败: {}: {}", tid, conflict.relative_path, e);
                                 summary.conflicts += 1;
@@ -310,7 +332,7 @@ impl Worker {
                             &tid, &action, &self.config, &self.api, &self.db,
                             &self.file_locks, &transfer_semaphore, &root_id,
                         ).await {
-                            Ok(_) => summary.downloaded += 1,
+                            Ok(_) => { summary.downloaded += 1; conflict_ok = true; }
                             Err(e) => {
                                 tracing::error!("[{}] 冲突下载失败: {}: {}", tid, conflict.relative_path, e);
                                 summary.conflicts += 1;
@@ -343,6 +365,7 @@ impl Worker {
                             }
                         };
                         if renamed {
+                            conflict_ok = true;
                             tracing::info!("[{}] 冲突文件已重命名保留在本地: {}", tid, new_rel);
                             if let Some(ref remote) = conflict.remote_entry {
                                 let action = SyncAction {
@@ -368,6 +391,7 @@ impl Worker {
                         let local_path = self.config.local_root.join(&local.relative_path);
                         let _ = tokio::fs::remove_file(&local_path).await;
                         summary.deleted_local += 1;
+                        conflict_ok = true;
                         tracing::info!("[{}] 删除本地(冲突解决): {}", tid, conflict.relative_path);
                     }
                 }
@@ -375,6 +399,7 @@ impl Worker {
                     if let Some(ref remote) = conflict.remote_entry {
                         let _ = self.api.delete_files(&[&remote.uri]).await;
                         summary.deleted_remote += 1;
+                        conflict_ok = true;
                         tracing::info!("[{}] 删除远程(冲突解决): {}", tid, conflict.relative_path);
                     }
                 }
@@ -383,10 +408,19 @@ impl Worker {
                     tracing::warn!("[{}] 手动解决冲突: {}", tid, conflict.relative_path);
                 }
             }
+            // 更新冲突 task_item 状态
+            let item_status = if conflict_ok { TaskItemStatus::Completed } else { TaskItemStatus::Failed };
+            if conflict_ok {
+                let _ = self.db.increment_task_completed(&tid).await;
+            }
+            let _ = self.db.update_task_item_status_by_path(
+                &tid, &conflict.relative_path, "conflict_resolve", &item_status, None,
+            ).await;
         }
 
-        // 4. 并发上传
-        let mut upload_handles = Vec::new();
+        // 4. 并发上传（UploadOnly / Full）
+        if !matches!(self.config.sync_mode, SyncMode::DownloadOnly) {
+        let mut upload_handles: Vec<(String, tokio::task::JoinHandle<Result<()>>)> = Vec::new();
         for action in &self.plan.uploads {
             if self.shutdown_token.is_cancelled() { break; }
             let action = action.clone();
@@ -398,6 +432,7 @@ impl Worker {
             let ensured_dirs = self.ensured_dirs.clone();
             let sem = transfer_semaphore.clone();
             let root_id_c = root_id.clone();
+            let rel_path = action.relative_path.clone();
 
             let handle = tokio::spawn(async move {
                 crate::uploader::upload_file(
@@ -405,30 +440,41 @@ impl Worker {
                     &file_locks, &ensured_dirs, &sem, &root_id_c,
                 ).await
             });
-            upload_handles.push(handle);
+            upload_handles.push((rel_path, handle));
         }
 
-        for handle in upload_handles {
+        for (rel_path, handle) in upload_handles {
             match handle.await {
                 Ok(Ok(_)) => {
                     summary.uploaded += 1;
                     let _ = self.db.increment_task_completed(&tid).await;
+                    let _ = self.db.update_task_item_status_by_path(
+                        &tid, &rel_path, "upload", &TaskItemStatus::Completed, None,
+                    ).await;
                 }
                 Ok(Err(e)) => {
-                    tracing::error!("[{}] 上传失败: {}", tid, e);
+                    tracing::error!("[{}] 上传失败: {}: {}", tid, rel_path, e);
                     summary.failed += 1;
                     let _ = self.db.increment_task_failed(&tid).await;
+                    let _ = self.db.update_task_item_status_by_path(
+                        &tid, &rel_path, "upload", &TaskItemStatus::Failed, Some(&e.to_string()),
+                    ).await;
                 }
                 Err(e) => {
-                    tracing::error!("[{}] 上传任务异常: {}", tid, e);
+                    tracing::error!("[{}] 上传任务异常: {}: {}", tid, rel_path, e);
                     summary.failed += 1;
                     let _ = self.db.increment_task_failed(&tid).await;
+                    let _ = self.db.update_task_item_status_by_path(
+                        &tid, &rel_path, "upload", &TaskItemStatus::Failed, Some(&e.to_string()),
+                    ).await;
                 }
             }
         }
+        } // end UploadOnly/Full check for uploads
 
-        // 5. 并发下载
-        let mut download_handles = Vec::new();
+        // 5. 并发下载（DownloadOnly / Full）
+        if !matches!(self.config.sync_mode, SyncMode::UploadOnly) {
+        let mut download_handles: Vec<(String, tokio::task::JoinHandle<Result<()>>)> = Vec::new();
         for action in &self.plan.downloads {
             if self.shutdown_token.is_cancelled() { break; }
             let action = action.clone();
@@ -439,6 +485,7 @@ impl Worker {
             let file_locks = self.file_locks.clone();
             let sem = transfer_semaphore.clone();
             let root_id_c = root_id.clone();
+            let rel_path = action.relative_path.clone();
 
             let handle = tokio::spawn(async move {
                 crate::downloader::download_file(
@@ -446,29 +493,40 @@ impl Worker {
                     &file_locks, &sem, &root_id_c,
                 ).await
             });
-            download_handles.push(handle);
+            download_handles.push((rel_path, handle));
         }
 
-        for handle in download_handles {
+        for (rel_path, handle) in download_handles {
             match handle.await {
                 Ok(Ok(_)) => {
                     summary.downloaded += 1;
                     let _ = self.db.increment_task_completed(&tid).await;
+                    let _ = self.db.update_task_item_status_by_path(
+                        &tid, &rel_path, "download", &TaskItemStatus::Completed, None,
+                    ).await;
                 }
                 Ok(Err(e)) => {
-                    tracing::error!("[{}] 下载失败: {}", tid, e);
+                    tracing::error!("[{}] 下载失败: {}: {}", tid, rel_path, e);
                     summary.failed += 1;
                     let _ = self.db.increment_task_failed(&tid).await;
+                    let _ = self.db.update_task_item_status_by_path(
+                        &tid, &rel_path, "download", &TaskItemStatus::Failed, Some(&e.to_string()),
+                    ).await;
                 }
                 Err(e) => {
-                    tracing::error!("[{}] 下载任务异常: {}", tid, e);
+                    tracing::error!("[{}] 下载任务异常: {}: {}", tid, rel_path, e);
                     summary.failed += 1;
                     let _ = self.db.increment_task_failed(&tid).await;
+                    let _ = self.db.update_task_item_status_by_path(
+                        &tid, &rel_path, "download", &TaskItemStatus::Failed, Some(&e.to_string()),
+                    ).await;
                 }
             }
         }
+        } // end DownloadOnly/Full check for downloads
 
-        // 6. 删除本地文件
+        // 6. 删除本地文件（DownloadOnly / Full — 远程删除触发的本地删除）
+        if !matches!(self.config.sync_mode, SyncMode::UploadOnly) {
         for action in &self.plan.delete_local {
             if self.shutdown_token.is_cancelled() { break; }
             if let Some(ref local) = action.local_entry {
@@ -476,15 +534,96 @@ impl Worker {
                 match tokio::fs::remove_file(&local_path).await {
                     Ok(_) => {
                         summary.deleted_local += 1;
+                        let _ = self.db.increment_task_completed(&tid).await;
                         tracing::info!("[{}] 删除本地: {}", tid, action.relative_path);
                         let _ = self.db.delete_file_mapping(&root_id, &action.relative_path).await;
+                        let _ = self.db.update_task_item_status_by_path(
+                            &tid, &action.relative_path, "delete_local", &TaskItemStatus::Completed, None,
+                        ).await;
                     }
-                    Err(e) => tracing::warn!("[{}] 删除本地文件失败 {}: {}", tid, action.relative_path, e),
+                    Err(e) => {
+                        tracing::warn!("[{}] 删除本地文件失败 {}: {}", tid, action.relative_path, e);
+                        let _ = self.db.update_task_item_status_by_path(
+                            &tid, &action.relative_path, "delete_local", &TaskItemStatus::Failed, Some(&e.to_string()),
+                        ).await;
+                    }
                 }
             }
         }
+        } // end DownloadOnly/Full check for delete_local
 
-        // 7. 删除远程文件
+        // 6.5 本地重命名（远程触发 → 本地执行 rename）
+        if !matches!(self.config.sync_mode, SyncMode::UploadOnly) {
+        for action in &self.plan.rename_local {
+            if self.shutdown_token.is_cancelled() { break; }
+            let old_path = self.config.local_root.join(&action.old_relative_path);
+            let new_path = self.config.local_root.join(&action.new_relative_path);
+            let rel_path = format!("{} -> {}", action.old_relative_path, action.new_relative_path);
+
+            if let Some(parent) = new_path.parent() {
+                let _ = tokio::fs::create_dir_all(parent).await;
+            }
+
+            match tokio::fs::rename(&old_path, &new_path).await {
+                Ok(_) => {
+                    summary.renamed += 1;
+                    let _ = self.db.increment_task_completed(&tid).await;
+                    tracing::info!("[{}] 本地重命名: {} -> {}", tid, action.old_relative_path, action.new_relative_path);
+                    let _ = self.db.update_file_mapping_path(
+                        &root_id, &action.old_relative_path, &action.new_relative_path, &action.new_remote_uri,
+                    ).await;
+                    let _ = self.db.update_task_item_status_by_path(
+                        &tid, &rel_path, "rename", &TaskItemStatus::Completed, None,
+                    ).await;
+                }
+                Err(e) => {
+                    summary.failed += 1;
+                    tracing::warn!("[{}] 本地重命名失败: {} -> {}: {}", tid, action.old_relative_path, action.new_relative_path, e);
+                    let _ = self.db.update_task_item_status_by_path(
+                        &tid, &rel_path, "rename", &TaskItemStatus::Failed, Some(&e.to_string()),
+                    ).await;
+                }
+            }
+        }
+        } // end UploadOnly check for rename_local
+
+        // 6.6 本地移动（远程触发 → 本地执行 move）
+        if !matches!(self.config.sync_mode, SyncMode::UploadOnly) {
+        for action in &self.plan.move_local {
+            if self.shutdown_token.is_cancelled() { break; }
+            let old_path = self.config.local_root.join(&action.old_relative_path);
+            let new_path = self.config.local_root.join(&action.new_relative_path);
+            let rel_path = format!("{} -> {}", action.old_relative_path, action.new_relative_path);
+
+            if let Some(parent) = new_path.parent() {
+                let _ = tokio::fs::create_dir_all(parent).await;
+            }
+
+            match tokio::fs::rename(&old_path, &new_path).await {
+                Ok(_) => {
+                    summary.moved += 1;
+                    let _ = self.db.increment_task_completed(&tid).await;
+                    tracing::info!("[{}] 本地移动: {} -> {}", tid, action.old_relative_path, action.new_relative_path);
+                    let _ = self.db.update_file_mapping_path(
+                        &root_id, &action.old_relative_path, &action.new_relative_path, &action.new_remote_uri,
+                    ).await;
+                    let _ = self.db.update_task_item_status_by_path(
+                        &tid, &rel_path, "move", &TaskItemStatus::Completed, None,
+                    ).await;
+                }
+                Err(e) => {
+                    summary.failed += 1;
+                    tracing::warn!("[{}] 本地移动失败: {} -> {}: {}", tid, action.old_relative_path, action.new_relative_path, e);
+                    let _ = self.db.update_task_item_status_by_path(
+                        &tid, &rel_path, "move", &TaskItemStatus::Failed, Some(&e.to_string()),
+                    ).await;
+                }
+            }
+        }
+        } // end UploadOnly check for move_local
+
+        // 7. 删除远程文件（仅 Full）
+        if matches!(self.config.sync_mode, SyncMode::Full) {
         let remote_uris: Vec<&str> = self.plan.delete_remote.iter()
             .filter_map(|a| a.remote_entry.as_ref().map(|r| r.uri.as_str()))
             .collect();
@@ -492,16 +631,30 @@ impl Worker {
             match self.api.delete_files(&remote_uris).await {
                 Ok(_) => {
                     summary.deleted_remote += remote_uris.len() as u32;
+                    for _ in &remote_uris {
+                        let _ = self.db.increment_task_completed(&tid).await;
+                    }
                     for uri in &remote_uris {
                         tracing::info!("[{}] 删除远程: {}", tid, uri);
                     }
+                    for action in &self.plan.delete_remote {
+                        let _ = self.db.delete_file_mapping(&root_id, &action.relative_path).await;
+                        let _ = self.db.update_task_item_status_by_path(
+                            &tid, &action.relative_path, "delete_remote", &TaskItemStatus::Completed, None,
+                        ).await;
+                    }
                 }
-                Err(e) => tracing::error!("[{}] 批量删除远程文件失败: {}", tid, e),
-            }
-            for action in &self.plan.delete_remote {
-                let _ = self.db.delete_file_mapping(&root_id, &action.relative_path).await;
+                Err(e) => {
+                    tracing::error!("[{}] 批量删除远程文件失败: {}", tid, e);
+                    for action in &self.plan.delete_remote {
+                        let _ = self.db.update_task_item_status_by_path(
+                            &tid, &action.relative_path, "delete_remote", &TaskItemStatus::Failed, Some(&e.to_string()),
+                        ).await;
+                    }
+                }
             }
         }
+        } // end Full check for delete_remote
 
         let duration_ms = start.elapsed().as_millis() as u64;
         let final_status = if self.shutdown_token.is_cancelled() {
@@ -512,7 +665,8 @@ impl Worker {
             WorkerStatus::Completed
         };
 
-        let completed_count = summary.uploaded + summary.downloaded + summary.renamed + summary.moved;
+        let completed_count = summary.uploaded + summary.downloaded + summary.renamed + summary.moved
+            + summary.deleted_local + summary.deleted_remote;
         let _ = self.db.finish_sync_task(
             &tid, &final_status, completed_count, summary.failed,
         ).await;
@@ -544,7 +698,7 @@ impl Worker {
 /// WorkerPool — 全局 Worker 并发控制
 pub struct WorkerPool {
     worker_semaphore: Arc<Semaphore>,
-    active_workers: DashMap<String, tokio::task::JoinHandle<()>>,
+    active_workers: Arc<DashMap<String, tokio::task::JoinHandle<()>>>,
     db: Arc<SyncDb>,
     api: Arc<ApiClient>,
     file_locks: Arc<FileLockRegistry>,
@@ -554,6 +708,7 @@ pub struct WorkerPool {
 }
 
 impl WorkerPool {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         db: Arc<SyncDb>,
         api: Arc<ApiClient>,
@@ -561,14 +716,21 @@ impl WorkerPool {
         ensured_dirs: Arc<DashMap<String, ()>>,
         event_sink: Arc<crate::event_sink::EventSink>,
         shutdown_token: CancellationToken,
+        max_workers_override: usize,
+        client_id: &str,
     ) -> Self {
         let cpu_count = num_cpus();
-        let max_workers = cpu_count.clamp(1, 32);
-        tracing::info!("WorkerPool 初始化: 最大并发 Worker 数={}", max_workers);
+        let max_workers = if max_workers_override > 0 {
+            max_workers_override.min(cpu_count * 2).max(1)
+        } else {
+            cpu_count.clamp(1, 32)
+        };
+        tracing::info!("WorkerPool 初始化: 最大并发 Worker 数={} (cpu={}, override={})", max_workers, cpu_count, max_workers_override);
+        tracing::info!("Client ID: {}", client_id);
 
         Self {
             worker_semaphore: Arc::new(Semaphore::new(max_workers)),
-            active_workers: DashMap::new(),
+            active_workers: Arc::new(DashMap::new()),
             db,
             api,
             file_locks,
@@ -586,6 +748,12 @@ impl WorkerPool {
         trigger: WorkerTrigger,
         conflict_resolver: ConflictResolver,
     ) -> Result<SyncSummary> {
+        // 空 plan 直接返回，不创建任务记录
+        if !plan.has_work() {
+            tracing::debug!("SyncPlan 无操作，跳过 Worker 创建");
+            return Ok(SyncSummary::default());
+        }
+
         let task_id = uuid::Uuid::new_v4().to_string();
         let now = chrono::Utc::now().to_rfc3339();
 
@@ -596,6 +764,8 @@ impl WorkerPool {
             + plan.delete_remote.len() as u32
             + plan.rename_remote.len() as u32
             + plan.move_remote.len() as u32
+            + plan.rename_local.len() as u32
+            + plan.move_local.len() as u32
             + plan.conflicts.len() as u32;
 
         let task = SyncTask {
@@ -653,7 +823,12 @@ impl WorkerPool {
         config: WorkerConfig,
         trigger: WorkerTrigger,
         conflict_resolver: ConflictResolver,
-    ) -> String {
+    ) -> Option<String> {
+        // 空 plan 直接返回，不创建任务记录
+        if !plan.has_work() {
+            return None;
+        }
+
         let task_id = uuid::Uuid::new_v4().to_string();
         let now = chrono::Utc::now().to_rfc3339();
 
@@ -663,6 +838,8 @@ impl WorkerPool {
             + plan.delete_remote.len() as u32
             + plan.rename_remote.len() as u32
             + plan.move_remote.len() as u32
+            + plan.rename_local.len() as u32
+            + plan.move_local.len() as u32
             + plan.conflicts.len() as u32;
 
         let task = SyncTask {
@@ -705,6 +882,7 @@ impl WorkerPool {
         let ensured_dirs = self.ensured_dirs.clone();
         let event_sink = self.event_sink.clone();
         let shutdown_token = self.shutdown_token.clone();
+        let active_workers = self.active_workers.clone();
 
         let handle = tokio::spawn(async move {
             let _permit = sem.acquire().await.unwrap();
@@ -724,10 +902,12 @@ impl WorkerPool {
             if let Err(e) = worker.run().await {
                 tracing::error!("[{}] Worker后台执行失败: {}", task_id, e);
             }
+            // Worker 完成后从活跃列表移除
+            active_workers.remove(&task_id);
         });
 
         self.active_workers.insert(tid.clone(), handle);
-        tid
+        Some(tid)
     }
 
     /// 当前活跃 Worker 数
@@ -827,6 +1007,34 @@ impl WorkerPool {
                 task_id: task_id.to_string(),
                 relative_path: conflict.relative_path.clone(),
                 action_type: TaskActionType::ConflictResolve,
+                status: TaskItemStatus::Pending,
+                file_size: 0,
+                error_message: None,
+                created_at: now.to_string(),
+                updated_at: now.to_string(),
+            };
+            self.db.create_sync_task_item(&item).await?;
+        }
+        for action in &plan.rename_local {
+            let item = SyncTaskItem {
+                id: 0,
+                task_id: task_id.to_string(),
+                relative_path: format!("{} -> {}", action.old_relative_path, action.new_relative_path),
+                action_type: TaskActionType::Rename,
+                status: TaskItemStatus::Pending,
+                file_size: 0,
+                error_message: None,
+                created_at: now.to_string(),
+                updated_at: now.to_string(),
+            };
+            self.db.create_sync_task_item(&item).await?;
+        }
+        for action in &plan.move_local {
+            let item = SyncTaskItem {
+                id: 0,
+                task_id: task_id.to_string(),
+                relative_path: format!("{} -> {}", action.old_relative_path, action.new_relative_path),
+                action_type: TaskActionType::Move,
                 status: TaskItemStatus::Pending,
                 file_size: 0,
                 error_message: None,

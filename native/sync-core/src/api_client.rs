@@ -30,15 +30,24 @@ pub struct ApiClient {
     refresh_token: RwLock<String>,
     refresh_state: Arc<Mutex<RefreshState>>,
     client: Client,
+    /// 流式下载专用 client，不设整体超时，仅限制连接和读取间隔
+    download_client: Client,
     client_id: String,
 }
 
 impl ApiClient {
     pub fn new(base_url: &str, access_token: &str, refresh_token: &str, client_id: &str) -> Self {
         let client = Client::builder()
+            .connect_timeout(std::time::Duration::from_secs(15))
             .timeout(std::time::Duration::from_secs(30))
             .build()
             .expect("Failed to create HTTP client");
+
+        let download_client = Client::builder()
+            .connect_timeout(std::time::Duration::from_secs(30))
+            .read_timeout(std::time::Duration::from_secs(300))
+            .build()
+            .expect("Failed to create download HTTP client");
 
         Self {
             base_url: base_url.trim_end_matches('/').to_string(),
@@ -46,6 +55,7 @@ impl ApiClient {
             refresh_token: RwLock::new(refresh_token.to_string()),
             refresh_state: Arc::new(Mutex::new(RefreshState { refreshing: false, notify: Arc::new(tokio::sync::Notify::new()) })),
             client,
+            download_client,
             client_id: client_id.to_string(),
         }
     }
@@ -439,7 +449,7 @@ impl ApiClient {
         url: &str,
         offset: u64,
     ) -> Result<reqwest::Response> {
-        let mut req = self.client.get(url);
+        let mut req = self.download_client.get(url);
         if offset > 0 {
             req = req.header("Range", format!("bytes={}-", offset));
         }

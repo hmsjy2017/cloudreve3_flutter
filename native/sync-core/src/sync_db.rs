@@ -181,18 +181,21 @@ impl SyncDb {
         let now = chrono::Utc::now().to_rfc3339();
         let sync_mode = match root.sync_mode {
             SyncMode::Full => "full",
-            SyncMode::Selective => "selective",
+            SyncMode::UploadOnly => "upload_only",
+            SyncMode::DownloadOnly => "download_only",
             SyncMode::Album => "album",
         };
 
         let conn = self.write_conn.lock().await;
 
         // 先查找是否已存在
-        let existing_id: Option<String> = conn.query_row(
-            "SELECT id FROM sync_root WHERE local_path = ?1",
-            rusqlite::params![local_path],
-            |row| row.get(0),
-        ).ok();
+        let existing_id: Option<String> = conn
+            .query_row(
+                "SELECT id FROM sync_root WHERE local_path = ?1",
+                rusqlite::params![local_path],
+                |row| row.get(0),
+            )
+            .ok();
 
         if let Some(id) = existing_id {
             // 更新已有记录，保留 id 和 created_at
@@ -215,7 +218,11 @@ impl SyncDb {
 
     // ===== file_mapping 操作 =====
 
-    pub async fn get_file_mapping(&self, sync_root_id: &str, local_path: &str) -> Result<Option<FileMapping>> {
+    pub async fn get_file_mapping(
+        &self,
+        sync_root_id: &str,
+        local_path: &str,
+    ) -> Result<Option<FileMapping>> {
         let pool = self.read_pool.clone();
         let sync_root_id = sync_root_id.to_string();
         let local_path = local_path.to_string();
@@ -226,12 +233,11 @@ impl SyncDb {
                 "SELECT id, sync_root_id, local_path, remote_uri, remote_file_id,
                         local_hash, remote_hash, local_mtime, remote_mtime,
                         local_size, remote_size, sync_status, is_placeholder
-                 FROM file_mapping WHERE sync_root_id = ?1 AND local_path = ?2"
+                 FROM file_mapping WHERE sync_root_id = ?1 AND local_path = ?2",
             )?;
 
-            let mapping = stmt.query_row(
-                rusqlite::params![sync_root_id, local_path],
-                |row| {
+            let mapping = stmt
+                .query_row(rusqlite::params![sync_root_id, local_path], |row| {
                     Ok(FileMapping {
                         id: row.get(0)?,
                         sync_root_id: row.get(1)?,
@@ -247,11 +253,12 @@ impl SyncDb {
                         sync_status: parse_sync_status(&row.get::<_, String>(11)?),
                         is_placeholder: row.get::<_, i32>(12)? != 0,
                     })
-                },
-            ).ok();
+                })
+                .ok();
 
             Ok(mapping)
-        }).await??;
+        })
+        .await??;
 
         Ok(result)
     }
@@ -314,7 +321,11 @@ impl SyncDb {
     }
 
     /// 删除指定目录前缀下的所有文件映射（含目录自身）
-    pub async fn delete_file_mapping_prefix(&self, sync_root_id: &str, dir_prefix: &str) -> Result<u64> {
+    pub async fn delete_file_mapping_prefix(
+        &self,
+        sync_root_id: &str,
+        dir_prefix: &str,
+    ) -> Result<u64> {
         let conn = self.write_conn.lock().await;
         // 匹配: dir_prefix 自身、dir_prefix/... 子路径
         let exact = dir_prefix;
@@ -402,34 +413,50 @@ impl SyncDb {
                 "SELECT id, sync_root_id, file_mapping_id, direction, local_path, remote_uri,
                         file_size, bytes_done, status, retry_count, max_retries,
                         error_message, session_id, chunk_index
-                 FROM transfer_queue WHERE status IN ('active', 'pending')"
+                 FROM transfer_queue WHERE status IN ('active', 'pending')",
             )?;
-            let tasks = stmt.query_map([], |row| {
-                Ok(transfer_task_from_row(row))
-            })?.filter_map(|t| t.ok()).collect();
+            let tasks = stmt
+                .query_map([], |row| Ok(transfer_task_from_row(row)))?
+                .filter_map(|t| t.ok())
+                .collect();
             Ok(tasks)
-        }).await??;
+        })
+        .await??;
         Ok(result)
     }
 
     // ===== album_sync_record 操作 =====
 
-    pub async fn get_album_sync_records(&self) -> Result<std::collections::HashMap<String, String>> {
+    pub async fn get_album_sync_records(
+        &self,
+    ) -> Result<std::collections::HashMap<String, String>> {
         let pool = self.read_pool.clone();
-        let result = tokio::task::spawn_blocking(move || -> Result<std::collections::HashMap<String, String>> {
-            let conn = pool.get()?;
-            let mut stmt = conn.prepare("SELECT local_path, remote_uri FROM album_sync_record")?;
-            let records = stmt.query_map([], |row| {
-                let local: String = row.get(0)?;
-                let remote: String = row.get(1)?;
-                Ok((local, remote))
-            })?.filter_map(|r| r.ok()).collect();
-            Ok(records)
-        }).await??;
+        let result = tokio::task::spawn_blocking(
+            move || -> Result<std::collections::HashMap<String, String>> {
+                let conn = pool.get()?;
+                let mut stmt =
+                    conn.prepare("SELECT local_path, remote_uri FROM album_sync_record")?;
+                let records = stmt
+                    .query_map([], |row| {
+                        let local: String = row.get(0)?;
+                        let remote: String = row.get(1)?;
+                        Ok((local, remote))
+                    })?
+                    .filter_map(|r| r.ok())
+                    .collect();
+                Ok(records)
+            },
+        )
+        .await??;
         Ok(result)
     }
 
-    pub async fn add_album_sync_record(&self, local_path: &str, remote_uri: &str, file_hash: &str) -> Result<()> {
+    pub async fn add_album_sync_record(
+        &self,
+        local_path: &str,
+        remote_uri: &str,
+        file_hash: &str,
+    ) -> Result<()> {
         let conn = self.write_conn.lock().await;
         let now = chrono::Utc::now().to_rfc3339();
         conn.execute(
@@ -441,7 +468,12 @@ impl SyncDb {
 
     // ===== sync_log 操作 =====
 
-    pub async fn add_log(&self, sync_root_id: &str, event_type: &str, details: Option<&str>) -> Result<()> {
+    pub async fn add_log(
+        &self,
+        sync_root_id: &str,
+        event_type: &str,
+        details: Option<&str>,
+    ) -> Result<()> {
         let conn = self.write_conn.lock().await;
         let now = chrono::Utc::now().to_rfc3339();
         conn.execute(
@@ -473,7 +505,11 @@ impl SyncDb {
         Ok(())
     }
 
-    pub async fn update_sync_task_status(&self, task_id: &str, status: &WorkerStatus) -> Result<()> {
+    pub async fn update_sync_task_status(
+        &self,
+        task_id: &str,
+        status: &WorkerStatus,
+    ) -> Result<()> {
         let conn = self.write_conn.lock().await;
         let now = chrono::Utc::now().to_rfc3339();
         conn.execute(
@@ -483,7 +519,11 @@ impl SyncDb {
         Ok(())
     }
 
-    pub async fn update_sync_task_total_count(&self, task_id: &str, total_count: u32) -> Result<()> {
+    pub async fn update_sync_task_total_count(
+        &self,
+        task_id: &str,
+        total_count: u32,
+    ) -> Result<()> {
         let conn = self.write_conn.lock().await;
         let now = chrono::Utc::now().to_rfc3339();
         conn.execute(
@@ -493,7 +533,13 @@ impl SyncDb {
         Ok(())
     }
 
-    pub async fn finish_sync_task(&self, task_id: &str, status: &WorkerStatus, completed: u32, failed: u32) -> Result<()> {
+    pub async fn finish_sync_task(
+        &self,
+        task_id: &str,
+        status: &WorkerStatus,
+        completed: u32,
+        failed: u32,
+    ) -> Result<()> {
         let conn = self.write_conn.lock().await;
         let now = chrono::Utc::now().to_rfc3339();
         conn.execute(
@@ -575,12 +621,35 @@ impl SyncDb {
         Ok(conn.last_insert_rowid())
     }
 
-    pub async fn update_sync_task_item_status(&self, item_id: i64, status: &TaskItemStatus, error_message: Option<&str>) -> Result<()> {
+    pub async fn update_sync_task_item_status(
+        &self,
+        item_id: i64,
+        status: &TaskItemStatus,
+        error_message: Option<&str>,
+    ) -> Result<()> {
         let conn = self.write_conn.lock().await;
         let now = chrono::Utc::now().to_rfc3339();
         conn.execute(
             "UPDATE sync_task_item SET status = ?1, error_message = ?2, updated_at = ?3 WHERE id = ?4",
             rusqlite::params![status.as_str(), error_message, now, item_id],
+        )?;
+        Ok(())
+    }
+
+    /// 按 task_id + relative_path + action_type 更新 task_item 状态
+    pub async fn update_task_item_status_by_path(
+        &self,
+        task_id: &str,
+        relative_path: &str,
+        action_type: &str,
+        status: &TaskItemStatus,
+        error_message: Option<&str>,
+    ) -> Result<()> {
+        let conn = self.write_conn.lock().await;
+        let now = chrono::Utc::now().to_rfc3339();
+        conn.execute(
+            "UPDATE sync_task_item SET status = ?1, error_message = ?2, updated_at = ?3 WHERE task_id = ?4 AND relative_path = ?5 AND action_type = ?6",
+            rusqlite::params![status.as_str(), error_message, now, task_id, relative_path, action_type],
         )?;
         Ok(())
     }
@@ -722,7 +791,9 @@ fn sync_task_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<SyncTask> {
         total_count: row.get(2)?,
         completed_count: row.get(3)?,
         failed_count: row.get(4)?,
-        status: status_str.parse::<WorkerStatus>().unwrap_or(WorkerStatus::Pending),
+        status: status_str
+            .parse::<WorkerStatus>()
+            .unwrap_or(WorkerStatus::Pending),
         created_at: row.get(6)?,
         updated_at: row.get(7)?,
         finished_at: row.get(8)?,
@@ -736,8 +807,12 @@ fn sync_task_item_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<SyncTask
         id: row.get(0)?,
         task_id: row.get(1)?,
         relative_path: row.get(2)?,
-        action_type: action_str.parse::<TaskActionType>().unwrap_or(TaskActionType::Upload),
-        status: status_str.parse::<TaskItemStatus>().unwrap_or(TaskItemStatus::Pending),
+        action_type: action_str
+            .parse::<TaskActionType>()
+            .unwrap_or(TaskActionType::Upload),
+        status: status_str
+            .parse::<TaskItemStatus>()
+            .unwrap_or(TaskItemStatus::Pending),
         file_size: row.get(5)?,
         error_message: row.get(6)?,
         created_at: row.get(7)?,

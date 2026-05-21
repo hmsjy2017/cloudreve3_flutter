@@ -753,7 +753,7 @@ conflictStrategy: dco_decode_String(arr[6]),
 maxConcurrentTransfers: dco_decode_u_32(arr[7]),
 bandwidthLimitKbps: dco_decode_u_64(arr[8]),
 excludedPaths: dco_decode_list_String(arr[9]),
-selectiveDirs: dco_decode_list_String(arr[10]),
+maxWorkers: dco_decode_u_32(arr[10]),
 dataDir: dco_decode_String(arr[11]),
 clientId: dco_decode_String(arr[12]),); }
 
@@ -942,10 +942,10 @@ var var_conflictStrategy = sse_decode_String(deserializer);
 var var_maxConcurrentTransfers = sse_decode_u_32(deserializer);
 var var_bandwidthLimitKbps = sse_decode_u_64(deserializer);
 var var_excludedPaths = sse_decode_list_String(deserializer);
-var var_selectiveDirs = sse_decode_list_String(deserializer);
+var var_maxWorkers = sse_decode_u_32(deserializer);
 var var_dataDir = sse_decode_String(deserializer);
 var var_clientId = sse_decode_String(deserializer);
-return SyncConfigFfi(baseUrl: var_baseUrl, accessToken: var_accessToken, refreshToken: var_refreshToken, localRoot: var_localRoot, remoteRoot: var_remoteRoot, syncMode: var_syncMode, conflictStrategy: var_conflictStrategy, maxConcurrentTransfers: var_maxConcurrentTransfers, bandwidthLimitKbps: var_bandwidthLimitKbps, excludedPaths: var_excludedPaths, selectiveDirs: var_selectiveDirs, dataDir: var_dataDir, clientId: var_clientId); }
+return SyncConfigFfi(baseUrl: var_baseUrl, accessToken: var_accessToken, refreshToken: var_refreshToken, localRoot: var_localRoot, remoteRoot: var_remoteRoot, syncMode: var_syncMode, conflictStrategy: var_conflictStrategy, maxConcurrentTransfers: var_maxConcurrentTransfers, bandwidthLimitKbps: var_bandwidthLimitKbps, excludedPaths: var_excludedPaths, maxWorkers: var_maxWorkers, dataDir: var_dataDir, clientId: var_clientId); }
 
 @protected SyncErrorFfi sse_decode_sync_error_ffi(SseDeserializer deserializer){ // Codec=Sse (Serialization based), see doc to use other codecs
 
@@ -1138,7 +1138,7 @@ sse_encode_String(self.conflictStrategy, serializer);
 sse_encode_u_32(self.maxConcurrentTransfers, serializer);
 sse_encode_u_64(self.bandwidthLimitKbps, serializer);
 sse_encode_list_String(self.excludedPaths, serializer);
-sse_encode_list_String(self.selectiveDirs, serializer);
+sse_encode_u_32(self.maxWorkers, serializer);
 sse_encode_String(self.dataDir, serializer);
 sse_encode_String(self.clientId, serializer);
  }

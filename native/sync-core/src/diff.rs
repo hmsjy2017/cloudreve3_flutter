@@ -1,12 +1,13 @@
 use crate::models::*;
 use std::collections::{HashMap, HashSet};
 
-/// 三路差异计算: 本地 vs 远程 vs 数据库
+/// 三路差异计算: 本地 vs 远程 vs 数据库，按同步模式过滤
 pub fn compute_diff(
     local_files: &[LocalFileEntry],
     remote_files: &[RemoteFileEntry],
     db_mappings: &HashMap<String, FileMapping>,
     remote_root: &str,
+    sync_mode: &SyncMode,
 ) -> SyncPlan {
     let mut plan = SyncPlan::default();
 
@@ -42,9 +43,11 @@ pub fn compute_diff(
         let db = db_mappings.get(path.as_str());
 
         match (local, remote, db) {
-            // 本地有，远程无
+            // 本地有，远程无 → 上传（UploadOnly 和 Full）
             (Some(l), None, _) => {
-                // 跳过 size=0 的普通文件（空文件无意义，不传输）
+                if matches!(sync_mode, SyncMode::DownloadOnly) {
+                    continue;
+                }
                 if !l.is_dir && l.size == 0 {
                     continue;
                 }
@@ -67,12 +70,14 @@ pub fn compute_diff(
                 }
             }
 
-            // 远程有，本地无 → 下载
+            // 远程有，本地无 → 下载（DownloadOnly 和 Full）
             (None, Some(r), _) => {
+                if matches!(sync_mode, SyncMode::UploadOnly) {
+                    continue;
+                }
                 if r.is_dir {
                     plan.mkdirs_local.push(path.clone());
                 } else if r.size == 0 {
-                    // 跳过 size=0 的空文件
                     continue;
                 } else {
                     plan.downloads.push(SyncAction {
@@ -120,14 +125,56 @@ pub fn compute_diff(
         }
     }
 
-    // 远程目录结构
-    for (path, local) in &local_map {
-        if local.is_dir && !remote_map.contains_key(path.as_str()) {
-            plan.mkdirs_remote.push(path.clone());
+    // 远程目录结构（仅 UploadOnly 和 Full）
+    if !matches!(sync_mode, SyncMode::DownloadOnly) {
+        for (path, local) in &local_map {
+            if local.is_dir && !remote_map.contains_key(path.as_str()) {
+                plan.mkdirs_remote.push(path.clone());
+            }
         }
     }
 
+    // 按 sync_mode 自动解决冲突
+    resolve_conflicts_by_mode(&mut plan, sync_mode);
+
     plan
+}
+
+/// 根据同步模式自动解决冲突
+fn resolve_conflicts_by_mode(plan: &mut SyncPlan, sync_mode: &SyncMode) {
+    if plan.conflicts.is_empty() {
+        return;
+    }
+
+    let conflicts = std::mem::take(&mut plan.conflicts);
+    for conflict in conflicts {
+        match sync_mode {
+            SyncMode::UploadOnly => {
+                // 冲突一律覆盖上传
+                let action = SyncAction {
+                    relative_path: conflict.relative_path.clone(),
+                    local_entry: conflict.local_entry.clone(),
+                    remote_entry: conflict.remote_entry.clone(),
+                    db_mapping: conflict.db_mapping.clone(),
+                };
+                plan.uploads.push(action);
+            }
+            SyncMode::DownloadOnly => {
+                // 冲突一律覆盖下载
+                let action = SyncAction {
+                    relative_path: conflict.relative_path.clone(),
+                    local_entry: conflict.local_entry.clone(),
+                    remote_entry: conflict.remote_entry.clone(),
+                    db_mapping: conflict.db_mapping.clone(),
+                };
+                plan.downloads.push(action);
+            }
+            _ => {
+                // Full: 保留冲突，由 Worker 用 conflict_strategy 解决
+                plan.conflicts.push(conflict);
+            }
+        }
+    }
 }
 
 /// 从远程 path 字段提取相对路径

@@ -38,7 +38,7 @@ pub struct SyncConfig {
     pub max_concurrent_transfers: usize,
     pub bandwidth_limit: Option<u64>,
     pub excluded_paths: Vec<String>,
-    pub selective_dirs: Vec<String>,
+    pub max_workers: usize,
     pub data_dir: PathBuf,
     pub client_id: String,
 }
@@ -46,7 +46,8 @@ pub struct SyncConfig {
 #[derive(Debug, Clone, PartialEq)]
 pub enum SyncMode {
     Full,
-    Selective,
+    UploadOnly,
+    DownloadOnly,
     Album,
 }
 
@@ -308,6 +309,14 @@ pub struct MoveAction {
     pub dst_remote_dir_uri: String,
 }
 
+/// 本地重命名/移动操作（远程触发 → 本地执行）
+#[derive(Debug, Clone)]
+pub struct LocalRenameAction {
+    pub old_relative_path: String,
+    pub new_relative_path: String,
+    pub new_remote_uri: String,
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct SyncPlan {
     pub uploads: Vec<SyncAction>,
@@ -316,11 +325,29 @@ pub struct SyncPlan {
     pub delete_remote: Vec<SyncAction>,
     pub rename_remote: Vec<RenameAction>,
     pub move_remote: Vec<MoveAction>,
+    pub rename_local: Vec<LocalRenameAction>,
+    pub move_local: Vec<LocalRenameAction>,
     pub conflicts: Vec<SyncConflict>,
     pub mkdirs_local: Vec<String>,
     pub mkdirs_remote: Vec<String>,
     /// 需要递归扫描的顶层目录（持续同步场景，目录整体提交给 Worker）
     pub scan_dirs: Vec<String>,
+}
+
+impl SyncPlan {
+    /// 判断是否有实际操作需要执行（含 scan_dirs 则为非空，因为扫描可能发现新文件）
+    pub fn has_work(&self) -> bool {
+        !self.uploads.is_empty()
+            || !self.downloads.is_empty()
+            || !self.delete_local.is_empty()
+            || !self.delete_remote.is_empty()
+            || !self.rename_remote.is_empty()
+            || !self.move_remote.is_empty()
+            || !self.rename_local.is_empty()
+            || !self.move_local.is_empty()
+            || !self.conflicts.is_empty()
+            || !self.scan_dirs.is_empty()
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -362,6 +389,7 @@ pub struct WorkerConfig {
     pub bandwidth_limit: Option<u64>,
     pub conflict_strategy: ConflictStrategy,
     pub sync_root_id: String,
+    pub sync_mode: SyncMode,
 }
 
 /// Worker 触发来源

@@ -4,6 +4,7 @@ import 'package:logger/logger.dart';
 import '../data/models/sync_config_model.dart';
 import '../data/models/sync_event_model.dart';
 import '../data/models/sync_status_model.dart';
+import '../data/models/sync_task_model.dart';
 import '../src/rust/api/ffi.dart' as ffi;
 
 /// 同步服务单例 - 桥接 Flutter UI 和 Rust 同步引擎
@@ -90,52 +91,52 @@ class SyncService {
     return await ffi.getActiveWorkerCount();
   }
 
-  /// 获取活跃的同步任务列表
-  Future<List<Map<String, dynamic>>> getActiveTasks() async {
+  /// 获取活跃的同步任务列表（typed）
+  Future<List<SyncTaskModel>> getActiveTasksTyped() async {
     final tasks = await ffi.getActiveTasks();
-    return tasks.map((t) => {
-      'id': t.id,
-      'trigger': t.trigger,
-      'totalCount': t.totalCount,
-      'completedCount': t.completedCount,
-      'failedCount': t.failedCount,
-      'status': t.status,
-      'createdAt': t.createdAt,
-      'updatedAt': t.updatedAt,
-      'finishedAt': t.finishedAt,
-    }).toList();
+    return tasks.map((t) => SyncTaskModel(
+      id: t.id,
+      trigger: t.trigger,
+      totalCount: t.totalCount,
+      completedCount: t.completedCount,
+      failedCount: t.failedCount,
+      status: t.status,
+      createdAt: t.createdAt,
+      updatedAt: t.updatedAt,
+      finishedAt: t.finishedAt,
+    )).toList();
   }
 
-  /// 获取最近同步任务列表
-  Future<List<Map<String, dynamic>>> getRecentTasks({int limit = 20}) async {
+  /// 获取最近同步任务列表（typed）
+  Future<List<SyncTaskModel>> getRecentTasksTyped({int limit = 20}) async {
     final tasks = await ffi.getRecentTasks(limit: limit);
-    return tasks.map((t) => {
-      'id': t.id,
-      'trigger': t.trigger,
-      'totalCount': t.totalCount,
-      'completedCount': t.completedCount,
-      'failedCount': t.failedCount,
-      'status': t.status,
-      'createdAt': t.createdAt,
-      'updatedAt': t.updatedAt,
-      'finishedAt': t.finishedAt,
-    }).toList();
+    return tasks.map((t) => SyncTaskModel(
+      id: t.id,
+      trigger: t.trigger,
+      totalCount: t.totalCount,
+      completedCount: t.completedCount,
+      failedCount: t.failedCount,
+      status: t.status,
+      createdAt: t.createdAt,
+      updatedAt: t.updatedAt,
+      finishedAt: t.finishedAt,
+    )).toList();
   }
 
-  /// 获取任务详情
-  Future<List<Map<String, dynamic>>> getTaskDetail(String taskId) async {
+  /// 获取任务详情（typed）
+  Future<List<SyncTaskItemModel>> getTaskDetailTyped(String taskId) async {
     final items = await ffi.getTaskDetail(taskId: taskId);
-    return items.map((i) => {
-      'id': i.id.toInt(),
-      'taskId': i.taskId,
-      'relativePath': i.relativePath,
-      'actionType': i.actionType,
-      'status': i.status,
-      'fileSize': i.fileSize,
-      'errorMessage': i.errorMessage,
-      'createdAt': i.createdAt,
-      'updatedAt': i.updatedAt,
-    }).toList();
+    return items.map((i) => SyncTaskItemModel(
+      id: i.id.toInt(),
+      taskId: i.taskId,
+      relativePath: i.relativePath,
+      actionType: i.actionType,
+      status: i.status,
+      fileSize: i.fileSize.toInt(),
+      errorMessage: i.errorMessage,
+      createdAt: i.createdAt,
+      updatedAt: i.updatedAt,
+    )).toList();
   }
 
   /// 水合文件 (Windows CFAPi)

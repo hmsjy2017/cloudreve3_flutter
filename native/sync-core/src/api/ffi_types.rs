@@ -22,7 +22,7 @@ pub struct SyncConfigFfi {
     pub max_concurrent_transfers: u32,
     pub bandwidth_limit_kbps: u64,
     pub excluded_paths: Vec<String>,
-    pub selective_dirs: Vec<String>,
+    pub max_workers: u32,
     pub data_dir: String,
     pub client_id: String,
 }

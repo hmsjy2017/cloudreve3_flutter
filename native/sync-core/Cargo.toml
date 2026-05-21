@@ -58,7 +58,7 @@ once_cell = "1"
 tokio-util = { version = "0.7", features = ["compat"] }
 
 # SSE
-eventsource = "0.5"
+# (已移除 eventsource 0.5 依赖，使用内联 SSE 解析器，避免旧版 tokio/net2 警告)
 
 # 平台依赖 (feature-gated)
 [target.'cfg(windows)'.dependencies]

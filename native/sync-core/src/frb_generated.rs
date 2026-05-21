@@ -341,10 +341,10 @@ let mut var_conflictStrategy = <String>::sse_decode(deserializer);
 let mut var_maxConcurrentTransfers = <u32>::sse_decode(deserializer);
 let mut var_bandwidthLimitKbps = <u64>::sse_decode(deserializer);
 let mut var_excludedPaths = <Vec<String>>::sse_decode(deserializer);
-let mut var_selectiveDirs = <Vec<String>>::sse_decode(deserializer);
+let mut var_maxWorkers = <u32>::sse_decode(deserializer);
 let mut var_dataDir = <String>::sse_decode(deserializer);
 let mut var_clientId = <String>::sse_decode(deserializer);
-return crate::api::ffi_types::SyncConfigFfi{base_url: var_baseUrl, access_token: var_accessToken, refresh_token: var_refreshToken, local_root: var_localRoot, remote_root: var_remoteRoot, sync_mode: var_syncMode, conflict_strategy: var_conflictStrategy, max_concurrent_transfers: var_maxConcurrentTransfers, bandwidth_limit_kbps: var_bandwidthLimitKbps, excluded_paths: var_excludedPaths, selective_dirs: var_selectiveDirs, data_dir: var_dataDir, client_id: var_clientId};}
+return crate::api::ffi_types::SyncConfigFfi{base_url: var_baseUrl, access_token: var_accessToken, refresh_token: var_refreshToken, local_root: var_localRoot, remote_root: var_remoteRoot, sync_mode: var_syncMode, conflict_strategy: var_conflictStrategy, max_concurrent_transfers: var_maxConcurrentTransfers, bandwidth_limit_kbps: var_bandwidthLimitKbps, excluded_paths: var_excludedPaths, max_workers: var_maxWorkers, data_dir: var_dataDir, client_id: var_clientId};}
                 }
                 
                 impl SseDecode for crate::api::ffi_types::SyncErrorFfi {
@@ -589,7 +589,7 @@ self.conflict_strategy.into_into_dart().into_dart(),
 self.max_concurrent_transfers.into_into_dart().into_dart(),
 self.bandwidth_limit_kbps.into_into_dart().into_dart(),
 self.excluded_paths.into_into_dart().into_dart(),
-self.selective_dirs.into_into_dart().into_dart(),
+self.max_workers.into_into_dart().into_dart(),
 self.data_dir.into_into_dart().into_dart(),
 self.client_id.into_into_dart().into_dart()
                 ].into_dart()
@@ -867,7 +867,7 @@ impl flutter_rust_bridge::IntoIntoDart<crate::api::ffi_types::TaskItemFilterFfi>
 <u32>::sse_encode(self.max_concurrent_transfers, serializer);
 <u64>::sse_encode(self.bandwidth_limit_kbps, serializer);
 <Vec<String>>::sse_encode(self.excluded_paths, serializer);
-<Vec<String>>::sse_encode(self.selective_dirs, serializer);
+<u32>::sse_encode(self.max_workers, serializer);
 <String>::sse_encode(self.data_dir, serializer);
 <String>::sse_encode(self.client_id, serializer);}
                 }
