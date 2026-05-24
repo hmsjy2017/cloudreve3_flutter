@@ -1,0 +1,355 @@
+mod initial_sync;
+mod continuous_sync;
+mod local_events;
+mod remote_events;
+mod album;
+#[cfg(feature = "windows-cfapi")]
+mod wcf;
+
+// 非 WCF feature 下的 stub 方法，供 remote_events.rs 编译通过
+#[cfg(not(feature = "windows-cfapi"))]
+impl SyncEngine {
+    async fn _create_placeholder_for_remote(
+        &self,
+        _relative: &str,
+        _remote: &RemoteFileEntry,
+        _local_root: &std::path::Path,
+        _root_id: &str,
+    ) {
+        // MirrorWcf 模式在非 Windows 平台不可用，此方法不应被调用
+    }
+}
+
+use crate::api_client::ApiClient;
+use crate::conflict_resolver::ConflictResolver;
+use crate::errors::Result;
+use crate::event_sink::EventSink;
+use crate::file_lock::FileLockRegistry;
+use crate::models::*;
+use crate::sync_db::SyncDb;
+use crate::worker::WorkerPool;
+use dashmap::DashMap;
+use std::collections::HashMap;
+use std::sync::Arc;
+use tokio::sync::RwLock;
+#[cfg(feature = "windows-cfapi")]
+use tokio::sync::mpsc;
+use tokio_util::sync::CancellationToken;
+
+pub struct SyncEngine {
+    state: RwLock<SyncState>,
+    db: Arc<SyncDb>,
+    api: Arc<ApiClient>,
+    config: RwLock<SyncConfig>,
+    conflict: RwLock<ConflictResolver>,
+    sync_root_id: Option<String>,
+    shutdown_token: std::sync::Mutex<CancellationToken>,
+    worker_pool: WorkerPool,
+    #[allow(dead_code)]
+    file_locks: Arc<FileLockRegistry>,
+    #[allow(dead_code)]
+    ensured_dirs: Arc<DashMap<String, ()>>,
+    event_sink: Arc<EventSink>,
+    /// 远程操作导致的本地路径变化，抑制本地 debouncer 自触发事件
+    suppress_paths: Arc<DashMap<String, std::time::Instant>>,
+    /// WCF 平台适配器（仅 MirrorWcf 模式下初始化）
+    #[cfg(feature = "windows-cfapi")]
+    platform_adapter: std::sync::Mutex<Option<Arc<crate::platform::wcf::WcfPlatformAdapter>>>,
+    /// WCF FETCH_DATA 回调接收端（在适配器初始化时提取）
+    #[cfg(feature = "windows-cfapi")]
+    wcf_fetch_rx: std::sync::Mutex<Option<mpsc::Receiver<sync_windows::FetchDataRequest>>>,
+    /// WCF 水合缓存：uri → 已下载的完整文件数据，避免同一文件重复下载
+    #[cfg(feature = "windows-cfapi")]
+    hydration_cache: Arc<DashMap<String, (Vec<u8>, std::time::Instant)>>,
+    /// 缓存的本地同步根路径（WCF 清理时同步读取，避免 await）
+    #[cfg(feature = "windows-cfapi")]
+    cached_local_root: std::sync::Mutex<std::path::PathBuf>,
+}
+
+impl SyncEngine {
+    pub async fn new(config: SyncConfig) -> Result<Self> {
+        let db_path = config.data_dir.join("sync_core").join("datas").join(".sync_db.sqlite3");
+        let db_path_clone = db_path.clone();
+        let db = Arc::new(tokio::task::spawn_blocking(move || SyncDb::open(&db_path_clone)).await??);
+
+        let api = Arc::new(ApiClient::new(&config.base_url, &config.access_token, &config.refresh_token, &config.client_id));
+
+        let conflict = ConflictResolver::new(config.conflict_strategy.clone());
+
+        let sync_root_id = match db.upsert_sync_root(&config).await {
+            Ok(id) => Some(id),
+            Err(e) => {
+                tracing::warn!("写入 sync_root 失败: {}", e);
+                None
+            }
+        };
+
+        let shutdown_token = CancellationToken::new();
+        let file_locks = Arc::new(FileLockRegistry::new());
+        let ensured_dirs = Arc::new(DashMap::new());
+        let event_sink = Arc::new(EventSink::new());
+        let suppress_paths = Arc::new(DashMap::new());
+
+        let max_workers = config.max_workers;
+        let client_id = config.client_id.clone();
+        let worker_pool = WorkerPool::new(
+            db.clone(),
+            api.clone(),
+            file_locks.clone(),
+            ensured_dirs.clone(),
+            event_sink.clone(),
+            shutdown_token.clone(),
+            max_workers,
+            &client_id,
+        );
+
+        Ok(Self {
+            state: RwLock::new(SyncState::Idle),
+            db,
+            api,
+            config: RwLock::new(config),
+            conflict: RwLock::new(conflict),
+            sync_root_id,
+            shutdown_token: std::sync::Mutex::new(shutdown_token),
+            worker_pool,
+            file_locks,
+            ensured_dirs,
+            event_sink,
+            suppress_paths,
+            #[cfg(feature = "windows-cfapi")]
+            platform_adapter: std::sync::Mutex::new(None),
+            #[cfg(feature = "windows-cfapi")]
+            wcf_fetch_rx: std::sync::Mutex::new(None),
+            #[cfg(feature = "windows-cfapi")]
+            hydration_cache: Arc::new(DashMap::new()),
+            #[cfg(feature = "windows-cfapi")]
+            cached_local_root: std::sync::Mutex::new(std::path::PathBuf::new()),
+        })
+    }
+
+    async fn snapshot_worker_config(&self) -> WorkerConfig {
+        let config = self.config.read().await;
+        WorkerConfig {
+            local_root: config.local_root.clone(),
+            remote_root: config.remote_root.clone(),
+            max_concurrent_transfers: config.max_concurrent_transfers,
+            bandwidth_limit: config.bandwidth_limit,
+            conflict_strategy: config.conflict_strategy.clone(),
+            sync_root_id: self.sync_root_id.clone().unwrap_or_default(),
+            sync_mode: config.sync_mode.clone(),
+        }
+    }
+
+    pub async fn stop(&self) -> Result<()> {
+        self.shutdown_token.lock().unwrap().cancel();
+
+        #[cfg(feature = "windows-cfapi")]
+        {
+            self.cleanup_wcf();
+        }
+
+        Ok(())
+    }
+
+    pub async fn pause(&self) -> Result<()> {
+        *self.state.write().await = SyncState::Paused;
+        Ok(())
+    }
+
+    pub async fn resume(&self) -> Result<()> {
+        *self.state.write().await = SyncState::Continuous;
+        Ok(())
+    }
+
+    pub async fn force_sync(&self) -> Result<SyncSummary> {
+        self.run_initial_sync().await
+    }
+
+    /// 重置同步：停止任务 → 清空 DB → 清空本地目录 → 回到初始状态
+    pub async fn reset_sync(&self) -> Result<()> {
+        tracing::info!("开始重置同步...");
+
+        // 1. 停止同步（含 WCF 清理）
+        self.stop().await?;
+
+        // 2. 终止所有活跃 Worker
+        self.worker_pool.abort_all_workers().await;
+
+        // 3. 清空 DB 业务数据
+        self.db.reset_sync_data().await?;
+        tracing::info!("同步数据库已清空");
+
+        // 4. 清空本地同步目录（保留目录本身，只删内容）
+        let local_root = self.config.read().await.local_root.clone();
+        if local_root.exists() {
+            let entries = std::fs::read_dir(&local_root)
+                .map_err(|_| crate::errors::SyncError::DiskFull { needed: 0, available: 0 })?;
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.is_dir() {
+                    let _ = std::fs::remove_dir_all(&path);
+                } else {
+                    let _ = std::fs::remove_file(&path);
+                }
+            }
+            tracing::info!("本地同步目录已清空: {}", local_root.display());
+        }
+
+        // 5. 清空内存缓存
+        self.ensured_dirs.clear();
+        self.suppress_paths.clear();
+
+        // 6. 重置状态
+        *self.state.write().await = SyncState::Idle;
+
+        tracing::info!("同步重置完成，已回到初始状态");
+        Ok(())
+    }
+
+    pub fn status(&self) -> SyncStatusSnapshot {
+        let state = self.state.try_read().map(|g| g.clone()).unwrap_or(SyncState::Idle);
+
+        let (synced_files, total_files) = match &state {
+            SyncState::InitialSync { progress } => {
+                let done = progress.uploaded + progress.downloaded;
+                (done, progress.total_to_sync)
+            }
+            _ => (0, 0),
+        };
+
+        SyncStatusSnapshot {
+            state,
+            synced_files,
+            total_files,
+            uploading_count: 0,
+            downloading_count: 0,
+            conflict_count: 0,
+            error_count: 0,
+            last_sync_time: None,
+            error_message: None,
+        }
+    }
+
+    pub fn active_worker_count(&self) -> u32 {
+        self.worker_pool.active_worker_count() as u32
+    }
+
+    pub async fn config(&self) -> SyncConfig {
+        self.config.read().await.clone()
+    }
+
+    pub async fn update_config(&self, new_config: SyncConfig) -> Result<()> {
+        let old_access_token = {
+            let config = self.config.read().await;
+            config.access_token.clone()
+        };
+
+        *self.conflict.write().await = ConflictResolver::new(new_config.conflict_strategy.clone());
+
+        if new_config.access_token != old_access_token {
+            self.api.update_token(new_config.access_token.clone()).await;
+        }
+
+        let new_bandwidth = new_config.bandwidth_limit;
+        let new_conflict = format!("{:?}", new_config.conflict_strategy);
+        let new_mode = format!("{:?}", new_config.sync_mode);
+        let new_max_concurrent = new_config.max_concurrent_transfers;
+        *self.config.write().await = new_config;
+
+        if new_bandwidth.is_some() {
+            tracing::info!("仅对下载限速生效, 由于Cloudreve实现原因, 上传限速无法生效");
+        }
+        tracing::info!(
+            "同步配置已更新: 模式={}, 冲突策略={}, 并发={}, 带宽限制={:?}",
+            new_mode, new_conflict, new_max_concurrent, new_bandwidth
+        );
+        Ok(())
+    }
+
+    pub async fn update_access_token(&self, token: String) {
+        self.api.update_token(token).await;
+    }
+
+    pub async fn register_event_sink(&self, sink: crate::frb_generated::StreamSink<crate::api::ffi_types::SyncEventFfi>) {
+        self.event_sink.register(sink).await;
+    }
+
+    pub async fn get_active_tasks(&self) -> Result<Vec<SyncTask>> {
+        self.db.get_active_sync_tasks().await
+    }
+
+    pub async fn get_recent_tasks(&self, limit: u32) -> Result<Vec<SyncTask>> {
+        self.db.get_recent_sync_tasks(limit).await
+    }
+
+    pub async fn get_task_detail(&self, task_id: &str) -> Result<Vec<SyncTaskItem>> {
+        self.db.get_sync_task_items(task_id).await
+    }
+
+    pub async fn query_task_items(&self, filter: &TaskItemFilter) -> Result<Vec<SyncTaskItem>> {
+        self.db.query_task_items(filter).await
+    }
+
+    pub async fn hydrate_file(&self, local_path: &str) -> Result<()> {
+        #[cfg(feature = "windows-cfapi")]
+        {
+            let path = std::path::PathBuf::from(local_path);
+            if let Some(adapter) = self.platform_adapter.lock().unwrap().as_ref() {
+                adapter.hydrate_file(&path)?;
+            }
+        }
+        let _ = local_path;
+        Ok(())
+    }
+
+    pub async fn shutdown(self) -> Result<()> {
+        self.stop().await
+    }
+
+    async fn load_all_mappings(&self) -> Result<HashMap<String, FileMapping>> {
+        let root_id = match &self.sync_root_id {
+            Some(id) => id.clone(),
+            None => return Ok(HashMap::new()),
+        };
+
+        let pool = self.db.read_pool();
+        let result = tokio::task::spawn_blocking(move || -> Result<HashMap<String, FileMapping>> {
+            let conn = pool.get()?;
+            let mut stmt = conn.prepare(
+                "SELECT id, sync_root_id, local_path, remote_uri, remote_file_id,
+                        local_hash, remote_hash, local_mtime, remote_mtime,
+                        local_size, remote_size, sync_status, is_placeholder
+                 FROM file_mapping WHERE sync_root_id = ?1"
+            )?;
+
+            let mappings: HashMap<String, FileMapping> = stmt.query_map(
+                rusqlite::params![root_id],
+                |row| {
+                    let local_path: String = row.get(2)?;
+                    Ok((
+                        crate::utils::normalize_path(&local_path),
+                        FileMapping {
+                            id: row.get(0)?,
+                            sync_root_id: row.get(1)?,
+                            local_path: std::path::PathBuf::from(local_path),
+                            remote_uri: row.get(3)?,
+                            remote_file_id: row.get(4)?,
+                            local_hash: row.get(5)?,
+                            remote_hash: row.get(6)?,
+                            local_mtime: row.get(7)?,
+                            remote_mtime: row.get(8)?,
+                            local_size: row.get(9)?,
+                            remote_size: row.get(10)?,
+                            sync_status: crate::diff::parse_sync_status_from_str(&row.get::<_, String>(11)?),
+                            is_placeholder: row.get::<_, i32>(12)? != 0,
+                        },
+                    ))
+                },
+            )?.filter_map(|r| r.ok()).collect();
+
+            Ok(mappings)
+        }).await??;
+
+        Ok(result)
+    }
+}

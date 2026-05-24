@@ -1,3 +1,5 @@
+#![cfg(target_os = "android")]
+
 //! Android 平台适配层
 //!
 //! 提供相册同步辅助功能：

@@ -1,4 +1,7 @@
+#![cfg(target_os = "windows")]
+
 /// Windows 平台适配层 - Cloud Filter API (CFApi) 集成
+
 use std::ffi::OsStr;
 use std::os::windows::ffi::OsStrExt;
 use std::os::windows::io::AsRawHandle;

@@ -1,84 +1,14 @@
+mod sse;
+
 use crate::api_client::ApiClient;
 use crate::errors::Result;
 use crate::models::{RemoteFileEntry, RemoteFileEvent};
+use sse::SseFileEvent;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::mpsc;
-
-// ===== 最小 SSE 解析器（替代 eventsource crate）=====
-
-#[derive(Default)]
-struct SseEvent {
-    event_type: Option<String>,
-    data: String,
-    id: Option<String>,
-}
-
-impl SseEvent {
-    fn new() -> Self {
-        Self::default()
-    }
-
-    fn is_empty(&self) -> bool {
-        self.event_type.is_none() && self.data.is_empty()
-    }
-
-    fn clear(&mut self) {
-        self.event_type = None;
-        self.data.clear();
-        self.id = None;
-    }
-}
-
-enum SseParseResult {
-    Next,
-    Dispatch,
-    SetRetry(Duration),
-}
-
-fn sse_parse_line(line: &str, event: &mut SseEvent) -> SseParseResult {
-    let line = line.trim_end_matches(['\r', '\n']);
-
-    if line.is_empty() {
-        if event.is_empty() {
-            return SseParseResult::Next;
-        }
-        return SseParseResult::Dispatch;
-    }
-
-    if line.starts_with(':') {
-        return SseParseResult::Next;
-    }
-
-    let (field, value) = if let Some(colon_pos) = line.find(':') {
-        let field = &line[..colon_pos];
-        let value = line[colon_pos + 1..].strip_prefix(' ').unwrap_or(&line[colon_pos + 1..]);
-        (field, value)
-    } else {
-        (line, "")
-    };
-
-    match field {
-        "event" => event.event_type = Some(value.to_string()),
-        "data" => {
-            if !event.data.is_empty() {
-                event.data.push('\n');
-            }
-            event.data.push_str(value);
-        }
-        "id" => event.id = Some(value.to_string()),
-        "retry" => {
-            if let Ok(ms) = value.parse::<u64>() {
-                return SseParseResult::SetRetry(Duration::from_millis(ms));
-            }
-        }
-        _ => {}
-    }
-
-    SseParseResult::Next
-}
 
 pub struct EventHandler {
     api: Arc<ApiClient>,
@@ -133,6 +63,8 @@ impl EventHandler {
         remote_root: &str,
         tx: &mpsc::Sender<RemoteFileEvent>,
     ) -> Result<()> {
+        use sse::{SseEvent, SseParseResult, sse_parse_line};
+
         let url = format!("{}/file/events", base_url);
 
         tracing::info!("[SSE] 正在连接: {}?uri={}", url, remote_root);
@@ -235,13 +167,6 @@ impl EventHandler {
     }
 
     /// 将 SSE 文件事件转为内部 RemoteFileEvent
-    /// `remote_root` 用于将 SSE 的相对路径 `from`/`to` 拼接为完整 URI
-    ///
-    /// SSE rename 事件需要区分两种情况：
-    /// - 真重命名：from 和 to 的父目录相同，仅文件名不同
-    ///   例: from=/Books/log.txt.aa, to=/Books/log.txt.aaa
-    /// - 移动：from 和 to 的父目录不同
-    ///   例: from=/Readest/log.txt.aa, to=/Readest/Books/log.txt.aa
     fn parse_sse_event(ev: &SseFileEvent, remote_root: &str) -> Option<RemoteFileEvent> {
         let full_uri = |path: &str| -> String {
             if path.starts_with("cloudreve://") || path.starts_with("http") {
@@ -291,7 +216,6 @@ impl EventHandler {
                     created_at_ms: 0,
                 };
 
-                // 判断是真 rename 还是 move：比较 from 和 to 的父目录
                 let from_parent = ev.from.rfind('/').map(|i| &ev.from[..i]).unwrap_or("");
                 let to_parent = ev.to.rfind('/').map(|i| &ev.to[..i]).unwrap_or("");
 
@@ -307,18 +231,6 @@ impl EventHandler {
             }
         }
     }
-}
-
-/// SSE 事件中的文件变更条目
-#[derive(Debug, serde::Deserialize)]
-struct SseFileEvent {
-    #[serde(rename = "type")]
-    event_type: String,
-    file_id: String,
-    from: String,
-    #[serde(default)]
-    #[allow(dead_code)]
-    to: String,
 }
 
 /// 事件防抖器：同一文件在 debounce_window 内的多次变更合并为一次

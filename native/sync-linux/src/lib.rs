@@ -1,3 +1,5 @@
+#![cfg(target_os = "linux")]
+
 //! Linux 平台适配层
 //!
 //! 提供文件系统监听 (notify/inotify) 用于：
