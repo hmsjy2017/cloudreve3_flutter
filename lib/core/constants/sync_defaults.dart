@@ -23,4 +23,5 @@ class SyncDefaults {
   static const int defaultMaxConcurrentTransfers = 3;
   static const int defaultBandwidthLimitKbps = 0;
   static const int defaultMaxWorkers = 0; // 0 = CPU 核心数
+  static const String defaultLogLevel = 'info';
 }

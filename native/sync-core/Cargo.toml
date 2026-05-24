@@ -8,7 +8,7 @@ crate-type = ["cdylib", "lib"]
 
 [dependencies]
 # FRB
-flutter_rust_bridge = "2.12"
+flutter_rust_bridge = "=2.12.0"
 
 # 异步运行时
 tokio = { workspace = true }

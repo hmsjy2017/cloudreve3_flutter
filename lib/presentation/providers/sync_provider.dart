@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'package:flutter/foundation.dart';
-import 'package:logger/logger.dart';
 
+import '../../../core/utils/app_logger.dart';
 import '../../../data/models/sync_config_model.dart';
 import '../../../data/models/sync_event_model.dart';
 import '../../../data/models/sync_task_model.dart';
@@ -19,7 +19,6 @@ enum SyncState {
 }
 
 class SyncProvider extends ChangeNotifier {
-  final _log = Logger();
 
   SyncState _state = SyncState.idle;
   String? _errorMessage;
@@ -40,6 +39,10 @@ class SyncProvider extends ChangeNotifier {
   int _activeWorkerCount = 0;
   // 任务详情缓存: taskId -> items
   final Map<String, List<SyncTaskItemModel>> _taskDetailCache = {};
+  // 任务详情是否有更多: taskId -> hasMore
+  final Map<String, bool> _taskDetailHasMore = {};
+  // 需要实时刷新详情的任务ID（UI 展开中的任务）
+  final Set<String> _watchedTaskIds = {};
   bool _recentTasksLoaded = false;
 
   // 持久化的同步配置
@@ -68,6 +71,10 @@ class SyncProvider extends ChangeNotifier {
 
   bool get hasError => _state == SyncState.error;
 
+  /// Rust 同步引擎是否已初始化（点过"开始同步"后为 true）
+  bool _engineInitialized = false;
+  bool get engineInitialized => _engineInitialized;
+
   double get progress =>
       _totalFiles > 0 ? _syncedFiles / _totalFiles : 0.0;
 
@@ -89,16 +96,17 @@ class SyncProvider extends ChangeNotifier {
           maxWorkers: configMap['maxWorkers'] as int? ?? 0,
           dataDir: configMap['dataDir'] as String? ?? '',
           clientId: configMap['clientId'] as String? ?? '',
+          logLevel: configMap['logLevel'] as String? ?? 'info',
         );
-        _log.i('恢复同步配置: 模式=${_persistedConfig!.syncMode}, 冲突=${_persistedConfig!.conflictStrategy}, 并发=${_persistedConfig!.maxConcurrentTransfers}, 带宽=${_persistedConfig!.bandwidthLimitKbps}kbps, maxWorkers=${_persistedConfig!.maxWorkers}');
+        AppLogger.i('恢复同步配置: 模式=${_persistedConfig!.syncMode}, 冲突=${_persistedConfig!.conflictStrategy}, 并发=${_persistedConfig!.maxConcurrentTransfers}, 带宽=${_persistedConfig!.bandwidthLimitKbps}kbps, maxWorkers=${_persistedConfig!.maxWorkers}');
       } catch (e) {
-        _log.e('恢复同步配置失败: $e');
+        AppLogger.e('恢复同步配置失败: $e');
       }
     }
 
     final savedState = await StorageService.instance.getSyncState();
     if (savedState != null && savedState != 'idle' && savedState != 'stopped') {
-      _log.i('恢复同步状态: $savedState');
+      AppLogger.i('恢复同步状态: $savedState');
     }
   }
 
@@ -118,6 +126,7 @@ class SyncProvider extends ChangeNotifier {
       'maxWorkers': config.maxWorkers,
       'dataDir': config.dataDir,
       'clientId': config.clientId,
+      'logLevel': config.logLevel,
     });
   }
 
@@ -154,6 +163,7 @@ class SyncProvider extends ChangeNotifier {
 
     try {
       await SyncService.instance.init(configWithClientId);
+      _engineInitialized = true;
       _subscribeEvents();
 
       _state = SyncState.initialSync;
@@ -168,7 +178,7 @@ class SyncProvider extends ChangeNotifier {
         _lastSummary = summary;
         _state = SyncState.continuous;
         await _persistState(SyncState.continuous);
-        _log.i('初始同步完成');
+        AppLogger.i('初始同步完成');
         notifyListeners();
 
         // 自动启动持续同步
@@ -177,14 +187,14 @@ class SyncProvider extends ChangeNotifier {
         _state = SyncState.error;
         _errorMessage = e.toString();
         await _persistState(SyncState.error);
-        _log.e('初始同步失败: $e');
+        AppLogger.e('初始同步失败: $e');
         notifyListeners();
       });
     } catch (e) {
       _state = SyncState.error;
       _errorMessage = e.toString();
       await _persistState(SyncState.error);
-      _log.e('同步启动失败: $e');
+      AppLogger.e('同步启动失败: $e');
       notifyListeners();
     }
   }
@@ -204,7 +214,7 @@ class SyncProvider extends ChangeNotifier {
       return;
     }
 
-    _log.i('自动恢复同步，上次状态: $savedState');
+    AppLogger.i('自动恢复同步，上次状态: $savedState');
 
     var config = _persistedConfig!;
     if (currentAccessToken != null && currentRefreshToken != null) {
@@ -217,17 +227,33 @@ class SyncProvider extends ChangeNotifier {
     await startSync(config);
   }
 
-  /// 热更新配置（同步运行中修改配置，无需重启引擎）
+  /// 更新配置（持久化 + 推送到 Rust 引擎）
   Future<void> updateConfig(SyncConfigModel config) async {
     await _persistConfig(config);
 
-    if (isActive || isPaused) {
-      try {
-        await SyncService.instance.updateConfig(config);
-        _log.i('同步配置已热更新到引擎');
-      } catch (e) {
-        _log.e('热更新配置失败: $e');
-      }
+    // 引擎已初始化时（无论是否运行中），推送配置到 Rust
+    try {
+      await SyncService.instance.updateConfig(config);
+      AppLogger.i('同步配置已更新到引擎: 模式=${config.syncMode}');
+    } catch (e) {
+      AppLogger.e('更新配置到引擎失败: $e');
+    }
+  }
+
+  /// 热修改日志级别（立即生效，无需重启引擎）
+  Future<void> setLogLevel(String level) async {
+    // 持久化
+    if (_persistedConfig != null) {
+      final updated = _persistedConfig!.copyWith(logLevel: level);
+      await _persistConfig(updated);
+    }
+
+    // 引擎已初始化时立即通知 Rust（不限制仅活跃状态）
+    try {
+      await SyncService.instance.setLogLevel(level);
+      AppLogger.i('日志级别已切换为: $level');
+    } catch (e) {
+      AppLogger.e('切换日志级别失败: $e');
     }
   }
 
@@ -254,6 +280,8 @@ class SyncProvider extends ChangeNotifier {
     _pollTimer = null;
   }
 
+  int _pollErrorCount = 0;
+
   Future<void> _pollStatus() async {
     try {
       final status = await SyncService.instance.getStatus();
@@ -262,6 +290,7 @@ class SyncProvider extends ChangeNotifier {
       _uploadingCount = status.uploadingCount;
       _downloadingCount = status.downloadingCount;
       _conflictCount = status.conflictCount;
+      _pollErrorCount = 0;
 
       final rustState = _parseState(status.state);
       if (rustState != _state && rustState != SyncState.idle) {
@@ -290,33 +319,42 @@ class SyncProvider extends ChangeNotifier {
           );
         }
 
-        // 同步运行中：每次轮询刷新已完成任务（快任务可能在两次轮询间完成）
-        if (_recentTasksLoaded && isActive) {
-          await _refreshRecentTasks();
-        }
-        // Worker 从有变无时也刷新（覆盖停止/错误等非活跃场景）
-        if (_activeWorkerCount == 0 && _recentTasksLoaded) {
-          await _refreshRecentTasks();
-        }
+        // 每次 polling 都刷新已完成任务
+        await _refreshRecentTasks();
 
-        if (changed) notifyListeners();
-        else notifyListeners();
+        // 刷新展开中的任务详情（实时更新 item 状态）
+        await _refreshWatchedTaskDetails();
+
+        if (changed) {
+          notifyListeners();
+        } else {
+          notifyListeners();
+        }
       } catch (_) {}
 
       notifyListeners();
       _adjustPollInterval();
-    } catch (_) {}
+    } catch (_) {
+      // 引擎未初始化等连续错误，停止轮询避免刷屏
+      _pollErrorCount++;
+      if (_pollErrorCount >= 3) {
+        _stopPolling();
+      }
+    }
   }
 
-  /// 首次加载已完成任务
+  /// 首次加载已完成任务（如果轮询未运行则启动慢速轮询）
   Future<void> loadRecentTasks() async {
     if (_recentTasksLoaded) return;
     await _refreshRecentTasks();
+    if (_pollTimer == null) {
+      _startPolling();
+    }
   }
 
   Future<void> _refreshRecentTasks() async {
     try {
-      final tasks = await SyncService.instance.getRecentTasksTyped();
+      final tasks = await SyncService.instance.getRecentTasksTyped(limit: 50);
       if (!_taskListEqual(tasks, _recentTasks)) {
         _recentTasks = tasks;
       }
@@ -331,6 +369,40 @@ class SyncProvider extends ChangeNotifier {
           a[i].completedCount != b[i].completedCount ||
           a[i].failedCount != b[i].failedCount ||
           a[i].status != b[i].status) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  /// 刷新展开中的任务详情（轮询时调用，只刷新 watched 的任务）
+  Future<void> _refreshWatchedTaskDetails() async {
+    if (_watchedTaskIds.isEmpty) return;
+    for (final taskId in _watchedTaskIds.toList()) {
+      try {
+        // 重新加载前 20 条（和当前缓存量一致）
+        final cachedCount = _taskDetailCache[taskId]?.length ?? 20;
+        final newItems = await SyncService.instance.queryTaskItemsTyped(
+          taskId: taskId,
+          limit: cachedCount.clamp(20, 100),
+          offset: 0,
+        );
+        final oldItems = _taskDetailCache[taskId];
+        if (oldItems != null && !_itemListEqual(oldItems, newItems)) {
+          _taskDetailCache[taskId] = newItems;
+          notifyListeners();
+        } else if (oldItems == null) {
+          _taskDetailCache[taskId] = newItems;
+          notifyListeners();
+        }
+      } catch (_) {}
+    }
+  }
+
+  bool _itemListEqual(List<SyncTaskItemModel> a, List<SyncTaskItemModel> b) {
+    if (a.length != b.length) return false;
+    for (int i = 0; i < a.length; i++) {
+      if (a[i].id != b[i].id || a[i].status != b[i].status) {
         return false;
       }
     }
@@ -367,7 +439,7 @@ class SyncProvider extends ChangeNotifier {
           await _persistState(SyncState.continuous);
           SyncService.instance.startContinuousSync();
         case SyncDiskSpaceWarning():
-          _log.w('磁盘空间不足');
+          AppLogger.w('磁盘空间不足');
       }
       notifyListeners();
     });
@@ -387,18 +459,54 @@ class SyncProvider extends ChangeNotifier {
   }
 
   void _handleTokenExpired() {
-    _log.w('Token 过期，需要刷新');
+    AppLogger.w('Token 过期，需要刷新');
   }
 
-  /// 获取任务详情（带缓存）
+  /// 获取任务详情（分页加载，带缓存）
   Future<List<SyncTaskItemModel>> getTaskDetail(String taskId) async {
     if (_taskDetailCache.containsKey(taskId)) {
       return _taskDetailCache[taskId]!;
     }
-    final items = await SyncService.instance.getTaskDetailTyped(taskId);
+    final items = await SyncService.instance.queryTaskItemsTyped(
+      taskId: taskId,
+      limit: 20,
+      offset: 0,
+    );
     _taskDetailCache[taskId] = items;
+    _taskDetailHasMore[taskId] = items.length >= 20;
     notifyListeners();
     return items;
+  }
+
+  /// 加载更多任务详情
+  Future<List<SyncTaskItemModel>> loadMoreTaskDetail(String taskId) async {
+    final current = _taskDetailCache[taskId] ?? [];
+    final offset = current.length;
+    final newItems = await SyncService.instance.queryTaskItemsTyped(
+      taskId: taskId,
+      limit: 20,
+      offset: offset,
+    );
+    final merged = [...current, ...newItems];
+    _taskDetailCache[taskId] = merged;
+    _taskDetailHasMore[taskId] = newItems.length >= 20;
+    notifyListeners();
+    return merged;
+  }
+
+  /// 指定任务是否还有更多详情可加载
+  bool hasMoreTaskDetail(String taskId) {
+    return _taskDetailHasMore[taskId] ?? true;
+  }
+
+  /// 标记任务详情需要实时刷新（UI 展开时调用）
+  void watchTaskDetail(String taskId) {
+    _watchedTaskIds.add(taskId);
+  }
+
+  /// 取消实时刷新（UI 收起时调用）
+  void unwatchTaskDetail(String taskId) {
+    _watchedTaskIds.remove(taskId);
   }
 
   /// 读取缓存的任务详情（同步，无则返回 null）
@@ -409,11 +517,13 @@ class SyncProvider extends ChangeNotifier {
   /// 清除任务详情缓存，下次获取时重新请求
   void invalidateTaskDetail(String taskId) {
     _taskDetailCache.remove(taskId);
+    _taskDetailHasMore.remove(taskId);
   }
 
   /// 清除所有任务详情缓存
   void invalidateAllTaskDetails() {
     _taskDetailCache.clear();
+    _taskDetailHasMore.clear();
     _recentTasksLoaded = false;
   }
 
@@ -435,10 +545,35 @@ class SyncProvider extends ChangeNotifier {
 
   /// 停止同步
   Future<void> stop() async {
-    _stopPolling();
     await SyncService.instance.stop();
     _state = SyncState.stopped;
     await _persistState(SyncState.stopped);
+    notifyListeners();
+    _adjustPollInterval();
+  }
+
+  /// 重置同步：停止任务 → 清空 DB → 清空本地目录 → 回到初始状态
+  Future<void> resetSync() async {
+    // 引擎未初始化时仅清空本地状态
+    try {
+      await SyncService.instance.resetSync();
+    } catch (_) {}
+    _state = SyncState.idle;
+    _errorMessage = null;
+    _syncedFiles = 0;
+    _totalFiles = 0;
+    _conflictCount = 0;
+    _uploadingCount = 0;
+    _downloadingCount = 0;
+    _currentFile = null;
+    _lastSummary = null;
+    _activeTasks = [];
+    _recentTasks = [];
+    _activeWorkerCount = 0;
+    _taskDetailCache.clear();
+    _recentTasksLoaded = false;
+    _engineInitialized = false;
+    await _persistState(SyncState.idle);
     notifyListeners();
   }
 

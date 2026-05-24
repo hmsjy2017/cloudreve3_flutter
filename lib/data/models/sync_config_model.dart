@@ -14,6 +14,7 @@ class SyncConfigModel {
   final int maxWorkers;
   final String dataDir;
   final String clientId;
+  final String logLevel;
 
   const SyncConfigModel({
     required this.baseUrl,
@@ -29,6 +30,7 @@ class SyncConfigModel {
     this.bandwidthLimitKbps = 0,
     this.excludedPaths = const [],
     this.maxWorkers = 0,
+    this.logLevel = 'info',
   });
 
   SyncConfigModel copyWith({
@@ -45,6 +47,7 @@ class SyncConfigModel {
     int? maxWorkers,
     String? dataDir,
     String? clientId,
+    String? logLevel,
   }) {
     return SyncConfigModel(
       baseUrl: baseUrl ?? this.baseUrl,
@@ -61,6 +64,7 @@ class SyncConfigModel {
       maxWorkers: maxWorkers ?? this.maxWorkers,
       dataDir: dataDir ?? this.dataDir,
       clientId: clientId ?? this.clientId,
+      logLevel: logLevel ?? this.logLevel,
     );
   }
 
@@ -79,6 +83,7 @@ class SyncConfigModel {
       maxWorkers: maxWorkers,
       dataDir: dataDir,
       clientId: clientId,
+      logLevel: logLevel,
     );
   }
 
@@ -97,6 +102,7 @@ class SyncConfigModel {
       maxWorkers: ffi.maxWorkers,
       dataDir: ffi.dataDir,
       clientId: ffi.clientId,
+      logLevel: ffi.logLevel,
     );
   }
 }

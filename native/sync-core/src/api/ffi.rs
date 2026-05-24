@@ -7,6 +7,11 @@ use crate::sync_engine::SyncEngine;
 /// 全局引擎实例
 static ENGINE: once_cell::sync::OnceCell<Arc<SyncEngine>> = once_cell::sync::OnceCell::new();
 
+/// 全局日志级别重载句柄（支持运行时热修改）
+static LOG_RELOAD_HANDLE: once_cell::sync::OnceCell<
+    tracing_subscriber::reload::Handle<tracing_subscriber::EnvFilter, tracing_subscriber::Registry>,
+> = once_cell::sync::OnceCell::new();
+
 // 内部类型 -> FFI 类型的转换函数
 
 fn error_to_ffi(e: crate::errors::SyncError) -> SyncErrorFfi {
@@ -100,6 +105,7 @@ fn config_to_ffi(c: &crate::models::SyncConfig) -> SyncConfigFfi {
         max_workers: c.max_workers as u32,
         data_dir: c.data_dir.to_string_lossy().to_string(),
         client_id: c.client_id.clone(),
+        log_level: String::new(),
     }
 }
 
@@ -162,11 +168,31 @@ fn get_engine() -> Result<&'static SyncEngine, SyncErrorFfi> {
     ENGINE.get().map(|arc| arc.as_ref()).ok_or(SyncErrorFfi::NotInitialized)
 }
 
+/// 内部：应用日志级别到 reload handle
+fn apply_log_level(level: &str) {
+    if level.is_empty() {
+        return;
+    }
+    if let Some(handle) = LOG_RELOAD_HANDLE.get() {
+        let directive = format!("sync_core={}", level);
+        match handle.modify(|filter| {
+            *filter = tracing_subscriber::EnvFilter::new(&directive);
+        }) {
+            Ok(()) => eprintln!("[sync-core] 日志级别已切换为: {}", level),
+            Err(e) => eprintln!("[sync-core] 修改日志级别失败: {}", e),
+        }
+    }
+}
+
 // ========== 生命周期 ==========
 
 /// 初始化同步引擎
 #[frb]
 pub async fn init_sync_engine(config: SyncConfigFfi) -> Result<(), SyncErrorFfi> {
+    eprintln!("[FFI] init_sync_engine ← mode={}, conflict={}, concurrent={}, bandwidth={}kbps, log_level={}",
+        config.sync_mode, config.conflict_strategy, config.max_concurrent_transfers,
+        config.bandwidth_limit_kbps, config.log_level);
+
     // 确保本地同步目录存在
     let local_root = std::path::PathBuf::from(&config.local_root);
     if !local_root.exists() {
@@ -212,7 +238,11 @@ pub async fn init_sync_engine(config: SyncConfigFfi) -> Result<(), SyncErrorFfi>
         let filter = tracing_subscriber::EnvFilter::from_default_env()
             .add_directive("sync_core=debug".parse().unwrap());
 
-        let registry = tracing_subscriber::registry().with(filter);
+        let (reload_filter, reload_handle) =
+            tracing_subscriber::reload::Layer::<_, tracing_subscriber::Registry>::new(filter);
+        LOG_RELOAD_HANDLE.set(reload_handle).ok();
+
+        let registry = tracing_subscriber::registry().with(reload_filter);
 
         if let Some(file) = log_file {
             let _ = registry
@@ -235,6 +265,7 @@ pub async fn init_sync_engine(config: SyncConfigFfi) -> Result<(), SyncErrorFfi>
     let log_conflict_strategy = config.conflict_strategy.clone();
     let log_max_concurrent = config.max_concurrent_transfers;
     let log_bandwidth = config.bandwidth_limit_kbps;
+    let log_level = config.log_level.clone();
 
     let engine = SyncEngine::new(config_from_ffi(config)).await
         .map_err(error_to_ffi)?;
@@ -252,12 +283,17 @@ pub async fn init_sync_engine(config: SyncConfigFfi) -> Result<(), SyncErrorFfi>
     if log_bandwidth > 0 {
         tracing::info!("仅对下载限速生效, 由于Cloudreve实现原因, 上传限速无法生效");
     }
+
+    // 应用配置中的日志级别（热修改覆盖默认 debug）
+    apply_log_level(&log_level);
+
     Ok(())
 }
 
 /// 销毁同步引擎
 #[frb]
 pub async fn dispose_sync_engine() -> Result<(), SyncErrorFfi> {
+    tracing::debug!("[FFI] dispose_sync_engine ←");
     let engine = get_engine()?;
     engine.stop().await.map_err(error_to_ffi)?;
     tracing::info!("同步引擎已停止");
@@ -269,15 +305,21 @@ pub async fn dispose_sync_engine() -> Result<(), SyncErrorFfi> {
 /// 执行初始全量同步
 #[frb]
 pub async fn start_initial_sync() -> Result<SyncSummaryFfi, SyncErrorFfi> {
+    tracing::debug!("[FFI] start_initial_sync ←");
     let engine = get_engine()?;
     engine.run_initial_sync().await
-        .map(summary_to_ffi)
+        .map(|s| {
+            tracing::debug!("[FFI] start_initial_sync → uploaded={}, downloaded={}, conflicts={}, failed={}",
+                s.uploaded, s.downloaded, s.conflicts, s.failed);
+            summary_to_ffi(s)
+        })
         .map_err(error_to_ffi)
 }
 
 /// 启动持续同步（后台运行，立即返回）
 #[frb]
 pub async fn start_continuous_sync() -> Result<(), SyncErrorFfi> {
+    tracing::debug!("[FFI] start_continuous_sync ←");
     let engine = get_engine()?;
     let engine = engine.clone();
     tokio::spawn(async move {
@@ -285,12 +327,14 @@ pub async fn start_continuous_sync() -> Result<(), SyncErrorFfi> {
             tracing::error!("持续同步异常退出: {}", e);
         }
     });
+    tracing::debug!("[FFI] start_continuous_sync → spawned");
     Ok(())
 }
 
 /// 停止同步
 #[frb]
 pub async fn stop_sync() -> Result<(), SyncErrorFfi> {
+    tracing::debug!("[FFI] stop_sync ←");
     let engine = get_engine()?;
     engine.stop().await.map_err(error_to_ffi)
 }
@@ -298,6 +342,7 @@ pub async fn stop_sync() -> Result<(), SyncErrorFfi> {
 /// 暂停同步
 #[frb]
 pub async fn pause_sync() -> Result<(), SyncErrorFfi> {
+    tracing::debug!("[FFI] pause_sync ←");
     let engine = get_engine()?;
     engine.pause().await.map_err(error_to_ffi)
 }
@@ -305,6 +350,7 @@ pub async fn pause_sync() -> Result<(), SyncErrorFfi> {
 /// 恢复同步
 #[frb]
 pub async fn resume_sync() -> Result<(), SyncErrorFfi> {
+    tracing::debug!("[FFI] resume_sync ←");
     let engine = get_engine()?;
     engine.resume().await.map_err(error_to_ffi)
 }
@@ -312,10 +358,23 @@ pub async fn resume_sync() -> Result<(), SyncErrorFfi> {
 /// 强制同步（重新扫描全量差异）
 #[frb]
 pub async fn force_sync() -> Result<SyncSummaryFfi, SyncErrorFfi> {
+    tracing::debug!("[FFI] force_sync ←");
     let engine = get_engine()?;
     engine.force_sync().await
-        .map(summary_to_ffi)
+        .map(|s| {
+            tracing::debug!("[FFI] force_sync → uploaded={}, downloaded={}, conflicts={}, failed={}",
+                s.uploaded, s.downloaded, s.conflicts, s.failed);
+            summary_to_ffi(s)
+        })
         .map_err(error_to_ffi)
+}
+
+/// 重置同步：停止任务 → 清空 DB → 清空本地目录 → 回到初始状态
+#[frb]
+pub async fn reset_sync() -> Result<(), SyncErrorFfi> {
+    tracing::debug!("[FFI] reset_sync ←");
+    let engine = get_engine()?;
+    engine.reset_sync().await.map_err(error_to_ffi)
 }
 
 // ========== 状态查询 ==========
@@ -324,26 +383,34 @@ pub async fn force_sync() -> Result<SyncSummaryFfi, SyncErrorFfi> {
 #[frb]
 pub async fn get_sync_status() -> Result<SyncStatusFfi, SyncErrorFfi> {
     let engine = get_engine()?;
-    Ok(status_to_ffi(engine.status()))
+    let s = engine.status();
+    tracing::trace!("[FFI] get_sync_status → state={:?}, synced={}, total={}", s.state, s.synced_files, s.total_files);
+    Ok(status_to_ffi(s))
 }
 
 /// 获取活跃 Worker 数量
 #[frb]
 pub async fn get_active_worker_count() -> Result<u32, SyncErrorFfi> {
     let engine = get_engine()?;
-    Ok(engine.active_worker_count())
+    let count = engine.active_worker_count();
+    tracing::trace!("[FFI] get_active_worker_count → {}", count);
+    Ok(count)
 }
 
 /// 获取同步配置
 #[frb]
 pub async fn get_sync_config() -> Result<SyncConfigFfi, SyncErrorFfi> {
     let engine = get_engine()?;
-    Ok(config_to_ffi(&engine.config().await))
+    let c = engine.config().await;
+    tracing::trace!("[FFI] get_sync_config → mode={:?}, conflict={:?}", c.sync_mode, c.conflict_strategy);
+    Ok(config_to_ffi(&c))
 }
 
 /// 更新同步配置
 #[frb]
 pub async fn update_sync_config(config: SyncConfigFfi) -> Result<(), SyncErrorFfi> {
+    tracing::debug!("[FFI] update_sync_config ← mode={}, conflict={}, concurrent={}, bandwidth={}kbps",
+        config.sync_mode, config.conflict_strategy, config.max_concurrent_transfers, config.bandwidth_limit_kbps);
     let engine = get_engine()?;
     engine.update_config(config_from_ffi(config)).await.map_err(error_to_ffi)
 }
@@ -353,6 +420,7 @@ pub async fn update_sync_config(config: SyncConfigFfi) -> Result<(), SyncErrorFf
 /// Dart 推送新 Token 给 Rust
 #[frb]
 pub async fn update_tokens(access_token: String) -> Result<(), SyncErrorFfi> {
+    tracing::debug!("[FFI] update_tokens ← token_len={}", access_token.len());
     let engine = get_engine()?;
     engine.update_access_token(access_token).await;
     Ok(())
@@ -363,6 +431,7 @@ pub async fn update_tokens(access_token: String) -> Result<(), SyncErrorFfi> {
 /// 水合文件（Windows 按需下载）
 #[frb]
 pub async fn hydrate_file(local_path: String) -> Result<(), SyncErrorFfi> {
+    tracing::debug!("[FFI] hydrate_file ← path={}", local_path);
     let engine = get_engine()?;
     engine.hydrate_file(&local_path).await.map_err(error_to_ffi)
 }
@@ -375,6 +444,7 @@ pub async fn sync_album_to_cloud(
     album_paths: Vec<String>,
     remote_dcim_uri: String,
 ) -> Result<(), SyncErrorFfi> {
+    tracing::debug!("[FFI] sync_album_to_cloud ← paths={}, uri={}", album_paths.len(), remote_dcim_uri);
     let engine = get_engine()?;
     engine.sync_album(album_paths, &remote_dcim_uri).await.map_err(error_to_ffi)
 }
@@ -382,15 +452,20 @@ pub async fn sync_album_to_cloud(
 /// 检查云端是否存在 DCIM/Pictures 目录
 #[frb]
 pub async fn check_cloud_album_dirs(base_uri: String) -> Result<CloudAlbumCheckResultFfi, SyncErrorFfi> {
+    tracing::debug!("[FFI] check_cloud_album_dirs ← uri={}", base_uri);
     let engine = get_engine()?;
     engine.check_album_dirs(&base_uri).await
-        .map(album_result_to_ffi)
+        .map(|r| {
+            tracing::debug!("[FFI] check_cloud_album_dirs → dcim={}, pictures={}", r.dcim_exists, r.pictures_exists);
+            album_result_to_ffi(r)
+        })
         .map_err(error_to_ffi)
 }
 
 /// 在云端创建 DCIM/Pictures 目录
 #[frb]
 pub async fn create_cloud_album_dirs(base_uri: String) -> Result<(), SyncErrorFfi> {
+    tracing::debug!("[FFI] create_cloud_album_dirs ← uri={}", base_uri);
     let engine = get_engine()?;
     engine.create_album_dirs(&base_uri).await.map_err(error_to_ffi)
 }
@@ -400,10 +475,33 @@ pub async fn create_cloud_album_dirs(base_uri: String) -> Result<(), SyncErrorFf
 /// 注册 Rust→Dart 事件推送通道
 #[frb]
 pub fn register_sync_event_sink(sink: crate::frb_generated::StreamSink<SyncEventFfi>) -> Result<(), SyncErrorFfi> {
+    tracing::debug!("[FFI] register_sync_event_sink ←");
     let engine = get_engine()?;
     // 使用 tokio runtime 注册
     let rt = tokio::runtime::Handle::current();
     rt.block_on(engine.register_event_sink(sink));
+    Ok(())
+}
+
+// ========== 日志级别 ==========
+
+/// 运行时热修改日志级别（立即生效，无需重启）
+#[frb]
+pub fn set_sync_log_level(level: String) -> Result<(), SyncErrorFfi> {
+    eprintln!("[FFI] set_sync_log_level ← level={}", level);
+    let valid_levels = ["error", "warn", "info", "debug", "trace"];
+    let level_lower = level.to_lowercase();
+    if !valid_levels.contains(&level_lower.as_str()) {
+        return Err(SyncErrorFfi::InternalError {
+            message: format!("无效的日志级别: {}, 可选: {:?}", level, valid_levels),
+        });
+    }
+
+    if LOG_RELOAD_HANDLE.get().is_none() {
+        return Err(SyncErrorFfi::NotInitialized);
+    }
+
+    apply_log_level(&level_lower);
     Ok(())
 }
 
@@ -414,28 +512,35 @@ pub fn register_sync_event_sink(sink: crate::frb_generated::StreamSink<SyncEvent
 pub async fn get_active_tasks() -> Result<Vec<SyncTaskFfi>, SyncErrorFfi> {
     let engine = get_engine()?;
     let tasks = engine.get_active_tasks().await.map_err(error_to_ffi)?;
+    tracing::trace!("[FFI] get_active_tasks → count={}", tasks.len());
     Ok(tasks.into_iter().map(task_to_ffi).collect())
 }
 
 /// 获取最近同步任务列表
 #[frb]
 pub async fn get_recent_tasks(limit: u32) -> Result<Vec<SyncTaskFfi>, SyncErrorFfi> {
+    tracing::trace!("[FFI] get_recent_tasks ← limit={}", limit);
     let engine = get_engine()?;
     let tasks = engine.get_recent_tasks(limit).await.map_err(error_to_ffi)?;
+    tracing::trace!("[FFI] get_recent_tasks → count={}", tasks.len());
     Ok(tasks.into_iter().map(task_to_ffi).collect())
 }
 
 /// 获取任务详情（任务项列表）
 #[frb]
 pub async fn get_task_detail(task_id: String) -> Result<Vec<SyncTaskItemFfi>, SyncErrorFfi> {
+    tracing::trace!("[FFI] get_task_detail ← task_id={}", task_id);
     let engine = get_engine()?;
     let items = engine.get_task_detail(&task_id).await.map_err(error_to_ffi)?;
+    tracing::trace!("[FFI] get_task_detail → count={}", items.len());
     Ok(items.into_iter().map(task_item_to_ffi).collect())
 }
 
 /// 多维度查询任务项
 #[frb]
 pub async fn query_task_items(filter: TaskItemFilterFfi) -> Result<Vec<SyncTaskItemFfi>, SyncErrorFfi> {
+    tracing::trace!("[FFI] query_task_items ← task_id={:?}, action={:?}, status={:?}, limit={}",
+        filter.task_id, filter.action_type, filter.status, filter.limit);
     let engine = get_engine()?;
     let model_filter = crate::models::TaskItemFilter {
         task_id: filter.task_id,
@@ -446,6 +551,7 @@ pub async fn query_task_items(filter: TaskItemFilterFfi) -> Result<Vec<SyncTaskI
         offset: filter.offset,
     };
     let items = engine.query_task_items(&model_filter).await.map_err(error_to_ffi)?;
+    tracing::trace!("[FFI] query_task_items → count={}", items.len());
     Ok(items.into_iter().map(task_item_to_ffi).collect())
 }
 

@@ -30,6 +30,7 @@ class _SyncSettingsPageState extends State<SyncSettingsPage> {
   int _maxConcurrent = 3;
   int _bandwidthLimitKbps = 0;
   int _maxWorkers = SyncDefaults.defaultMaxWorkers;
+  String _logLevel = 'info';
   String _syncLogFilePath = '';
   int? _syncLogFileSize;
 
@@ -52,6 +53,7 @@ class _SyncSettingsPageState extends State<SyncSettingsPage> {
           _maxConcurrent = config.maxConcurrentTransfers;
           _bandwidthLimitKbps = config.bandwidthLimitKbps;
           _maxWorkers = config.maxWorkers;
+          _logLevel = config.logLevel;
         });
       }
       _loadSyncLogInfo();
@@ -100,11 +102,21 @@ class _SyncSettingsPageState extends State<SyncSettingsPage> {
               _buildSection(
                 title: '同步模式',
                 children: [
+                  if (sync.isActive || sync.isPaused)
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                      child: Text(
+                        '同步运行中，无法切换模式。请先停止同步再修改。',
+                        style: TextStyle(color: Theme.of(context).colorScheme.error, fontSize: 12),
+                      ),
+                    ),
                   RadioGroup<String>(
                     groupValue: _syncMode,
-                    onChanged: (v) {
-                      if (v != null) _handleSyncModeChange(v);
-                    },
+                    onChanged: (sync.isActive || sync.isPaused)
+                        ? (_) {}
+                        : (v) {
+                            if (v != null) _handleSyncModeChange(v);
+                          },
                     child: Column(
                       children: [
                         RadioListTile<String>(
@@ -134,9 +146,11 @@ class _SyncSettingsPageState extends State<SyncSettingsPage> {
                     ListTile(
                       leading: const Icon(Icons.merge_outlined),
                       title: const Text('冲突解决策略'),
-                      subtitle: Text(_conflictStrategyLabel(_conflictStrategy)),
+                      subtitle: (sync.isActive || sync.isPaused)
+                          ? const Text('同步运行中，无法修改')
+                          : Text(_conflictStrategyLabel(_conflictStrategy)),
                       trailing: const Icon(Icons.chevron_right),
-                      onTap: () => _pickConflictStrategy(),
+                      onTap: (sync.isActive || sync.isPaused) ? null : () => _pickConflictStrategy(),
                     ),
                   ],
                 ),
@@ -151,7 +165,7 @@ class _SyncSettingsPageState extends State<SyncSettingsPage> {
                     value: _syncMode == 'album',
                     onChanged: (v) {
                       setState(() => _syncMode = v ? 'album' : 'full');
-                      _pushConfigIfActive();
+                      _pushConfig();
                     },
                   ),
                 ],
@@ -188,8 +202,94 @@ class _SyncSettingsPageState extends State<SyncSettingsPage> {
               ],
             ),
             _buildSection(
+              title: '同步控制',
+              children: [
+                if (!sync.isActive && !sync.isPaused)
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                    child: SizedBox(
+                      width: double.infinity,
+                      child: FilledButton.icon(
+                        onPressed: () => _startSync(auth, sync),
+                        icon: const Icon(Icons.play_arrow),
+                        label: const Text('开始同步'),
+                      ),
+                    ),
+                  ),
+                if (sync.isActive || sync.isPaused)
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                    child: Row(
+                      children: [
+                        if (sync.isActive)
+                          Expanded(
+                            child: OutlinedButton.icon(
+                              onPressed: () => sync.pause(),
+                              icon: const Icon(Icons.pause),
+                              label: const Text('暂停'),
+                            ),
+                          ),
+                        if (sync.isPaused)
+                          Expanded(
+                            child: FilledButton.icon(
+                              onPressed: () => sync.resume(),
+                              icon: const Icon(Icons.play_arrow),
+                              label: const Text('恢复'),
+                            ),
+                          ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: OutlinedButton.icon(
+                            onPressed: () => _stopSync(sync),
+                            icon: const Icon(Icons.stop),
+                            label: const Text('停止'),
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: Theme.of(context).colorScheme.error,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                if (sync.isActive)
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                    child: SizedBox(
+                      width: double.infinity,
+                      child: OutlinedButton.icon(
+                        onPressed: () => sync.forceSync(),
+                        icon: const Icon(Icons.refresh),
+                        label: const Text('强制重新同步'),
+                      ),
+                    ),
+                  ),
+                if (sync.engineInitialized)
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                    child: SizedBox(
+                      width: double.infinity,
+                      child: OutlinedButton.icon(
+                        onPressed: () => _resetSync(sync),
+                        icon: const Icon(Icons.delete_forever),
+                        label: const Text('重置同步'),
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: Theme.of(context).colorScheme.error,
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+            _buildSection(
               title: '同步日志',
               children: [
+                ListTile(
+                  leading: const Icon(Icons.tune),
+                  title: const Text('日志级别'),
+                  subtitle: Text(_logLevelLabel(_logLevel)),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: () => _pickLogLevel(),
+                ),
                 ListTile(
                   title: const Text('日志文件路径'),
                   subtitle: Text(
@@ -231,59 +331,6 @@ class _SyncSettingsPageState extends State<SyncSettingsPage> {
                 ),
               ],
             ),
-            if (!sync.isActive && !sync.isPaused)
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
-                child: FilledButton.icon(
-                  onPressed: () => _startSync(auth, sync),
-                  icon: const Icon(Icons.play_arrow),
-                  label: const Text('开始同步'),
-                ),
-              ),
-            if (sync.isActive || sync.isPaused)
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                child: Row(
-                  children: [
-                    if (sync.isActive)
-                      Expanded(
-                        child: OutlinedButton.icon(
-                          onPressed: () => sync.pause(),
-                          icon: const Icon(Icons.pause),
-                          label: const Text('暂停'),
-                        ),
-                      ),
-                    if (sync.isPaused)
-                      Expanded(
-                        child: FilledButton.icon(
-                          onPressed: () => sync.resume(),
-                          icon: const Icon(Icons.play_arrow),
-                          label: const Text('恢复'),
-                        ),
-                      ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: OutlinedButton.icon(
-                        onPressed: () => _stopSync(sync),
-                        icon: const Icon(Icons.stop),
-                        label: const Text('停止'),
-                        style: OutlinedButton.styleFrom(
-                          foregroundColor: Theme.of(context).colorScheme.error,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            if (sync.isActive)
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                child: OutlinedButton.icon(
-                  onPressed: () => sync.forceSync(),
-                  icon: const Icon(Icons.refresh),
-                  label: const Text('强制重新同步'),
-                ),
-              ),
             const SizedBox(height: 32),
           ],
         ),
@@ -325,7 +372,6 @@ class _SyncSettingsPageState extends State<SyncSettingsPage> {
     }
 
     setState(() => _syncMode = newMode);
-    _pushConfigIfActive();
   }
 
   Future<bool?> _showModeConfirmDialog({
@@ -575,7 +621,7 @@ class _SyncSettingsPageState extends State<SyncSettingsPage> {
 
     if (result != null) {
       setState(() => _conflictStrategy = result);
-      _pushConfigIfActive();
+      _pushConfig();
     }
   }
 
@@ -608,7 +654,7 @@ class _SyncSettingsPageState extends State<SyncSettingsPage> {
     );
     if (result != null) {
       setState(() => _maxConcurrent = result);
-      _pushConfigIfActive();
+      _pushConfig();
     }
   }
 
@@ -655,7 +701,7 @@ class _SyncSettingsPageState extends State<SyncSettingsPage> {
     );
     if (result != null) {
       setState(() => _maxWorkers = result);
-      _pushConfigIfActive();
+      _pushConfig();
     }
   }
 
@@ -695,13 +741,12 @@ class _SyncSettingsPageState extends State<SyncSettingsPage> {
     );
     if (result != null) {
       setState(() => _bandwidthLimitKbps = result);
-      _pushConfigIfActive();
+      _pushConfig();
     }
   }
 
-  void _pushConfigIfActive() {
+  void _pushConfig() {
     final sync = context.read<SyncProvider>();
-    if (!sync.isActive && !sync.isPaused) return;
 
     final config = sync.persistedConfig;
     if (config == null) return;
@@ -712,6 +757,7 @@ class _SyncSettingsPageState extends State<SyncSettingsPage> {
       maxConcurrentTransfers: _maxConcurrent,
       bandwidthLimitKbps: _bandwidthLimitKbps,
       maxWorkers: _maxWorkers,
+      logLevel: _logLevel,
     );
     sync.updateConfig(updated);
   }
@@ -739,6 +785,7 @@ class _SyncSettingsPageState extends State<SyncSettingsPage> {
       maxWorkers: _maxWorkers,
       dataDir: appSupportDir.path,
       clientId: '',
+      logLevel: _logLevel,
     );
 
     await sync.startSync(config);
@@ -771,6 +818,40 @@ class _SyncSettingsPageState extends State<SyncSettingsPage> {
     }
   }
 
+  Future<void> _resetSync(SyncProvider sync) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('重置同步'),
+        content: const Text(
+          '此操作将：\n\n'
+          '• 停止当前同步任务\n'
+          '• 清空同步数据库（任务记录、文件映射）\n'
+          '• 删除本地同步目录中的所有文件（不影响远程）\n\n'
+          '重置后需重新点击"开始同步"。此操作不可恢复。',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: FilledButton.styleFrom(
+              backgroundColor: Theme.of(ctx).colorScheme.error,
+            ),
+            child: const Text('重置'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed == true) {
+      await sync.resetSync();
+      if (mounted) ToastHelper.success('同步已重置');
+    }
+  }
+
   // ===== 同步日志 =====
 
   Future<String> _getSyncLogPath() async {
@@ -798,6 +879,65 @@ class _SyncSettingsPageState extends State<SyncSettingsPage> {
     if (bytes < 1024) return '$bytes B';
     if (bytes < 1024 * 1024) return '${(bytes / 1024).toStringAsFixed(1)} KB';
     return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
+  }
+
+  String _logLevelLabel(String level) {
+    return switch (level) {
+      'error' => 'Error — 仅错误',
+      'warn' => 'Warn — 错误 + 警告',
+      'info' => 'Info — 常规信息',
+      'debug' => 'Debug — 调试信息',
+      'trace' => 'Trace — 全量追踪',
+      _ => level,
+    };
+  }
+
+  Future<void> _pickLogLevel() async {
+    final levels = [
+      ('error', 'Error — 仅错误'),
+      ('warn', 'Warn — 错误 + 警告'),
+      ('info', 'Info — 常规信息'),
+      ('debug', 'Debug — 调试信息'),
+      ('trace', 'Trace — 全量追踪'),
+    ];
+
+    final result = await showDialog<String>(
+      context: context,
+      builder: (ctx) => SimpleDialog(
+        title: const Text('日志级别'),
+        children: levels
+            .map(
+              (e) => SimpleDialogOption(
+                onPressed: () => Navigator.pop(ctx, e.$1),
+                child: Row(
+                  children: [
+                    Icon(
+                      e.$1 == _logLevel
+                          ? Icons.radio_button_checked
+                          : Icons.radio_button_unchecked,
+                      size: 20,
+                    ),
+                    const SizedBox(width: 8),
+                    Text(e.$2),
+                  ],
+                ),
+              ),
+            )
+            .toList(),
+      ),
+    );
+
+    if (result != null && result != _logLevel) {
+      setState(() => _logLevel = result);
+
+      // 热修改：立即通知 Rust 引擎
+      final sync = context.read<SyncProvider>();
+      await sync.setLogLevel(result);
+
+      if (mounted) {
+        ToastHelper.success('日志级别已切换为 ${_logLevelLabel(result)}');
+      }
+    }
   }
 
   Future<void> _openSyncLogFolder() async {

@@ -5,7 +5,6 @@ import 'package:lucide_icons/lucide_icons.dart';
 
 import '../../../data/models/sync_task_model.dart';
 import '../../providers/sync_provider.dart';
-import '../../widgets/desktop_constrained.dart';
 import '../../widgets/toast_helper.dart';
 import 'sync_settings_page.dart';
 
@@ -47,8 +46,7 @@ class _SyncPageState extends State<SyncPage> {
           ),
         ],
       ),
-      body: DesktopConstrained(
-        child: RefreshIndicator(
+      body: RefreshIndicator(
           onRefresh: () async {
             final sync = context.read<SyncProvider>();
             sync.invalidateAllTaskDetails();
@@ -66,7 +64,6 @@ class _SyncPageState extends State<SyncPage> {
             ],
           ),
         ),
-      ),
     );
   }
 
@@ -108,7 +105,7 @@ class _SyncPageState extends State<SyncPage> {
     }
 
     return Card(
-      margin: const EdgeInsets.symmetric(horizontal: 16),
+      margin: const EdgeInsets.symmetric(horizontal: 5),
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
@@ -289,7 +286,7 @@ class _SyncPageState extends State<SyncPage> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 8),
           child: Row(
             children: [
               Icon(icon, size: 18, color: theme.colorScheme.primary),
@@ -306,7 +303,7 @@ class _SyncPageState extends State<SyncPage> {
         ),
         if (tasks.isEmpty)
           Card(
-            margin: const EdgeInsets.symmetric(horizontal: 16),
+            margin: const EdgeInsets.symmetric(horizontal: 5),
             child: Padding(
               padding: const EdgeInsets.all(24),
               child: Center(
@@ -324,13 +321,13 @@ class _SyncPageState extends State<SyncPage> {
     final isExpanded = _expandedTasks.contains(task.id);
 
     return Card(
-      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 2),
+      margin: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
       child: Column(
         children: [
           InkWell(
             onTap: () => _toggleTaskExpand(task.id),
             child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 12),
               child: Row(
                 children: [
                   GestureDetector(
@@ -423,11 +420,13 @@ class _SyncPageState extends State<SyncPage> {
       );
     }
 
+    final hasMore = sync.hasMoreTaskDetail(task.id);
+
     return Column(
       children: [
         const Divider(height: 1, indent: 16, endIndent: 16),
         Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+          padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 6),
           child: Row(
             children: [
               SizedBox(width: 70, child: Text('操作', style: theme.textTheme.labelSmall?.copyWith(color: theme.hintColor))),
@@ -438,6 +437,15 @@ class _SyncPageState extends State<SyncPage> {
           ),
         ),
         ...items.map((item) => _buildTaskItemRow(item, theme)),
+        if (hasMore)
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 8),
+            child: TextButton.icon(
+              onPressed: () => _loadMoreDetail(task.id),
+              icon: const Icon(Icons.expand_more, size: 16),
+              label: const Text('加载更多'),
+            ),
+          ),
         const SizedBox(height: 4),
       ],
     );
@@ -446,7 +454,7 @@ class _SyncPageState extends State<SyncPage> {
   Widget _buildTaskItemRow(SyncTaskItemModel item, ThemeData theme) {
     final timeStr = _formatTime(item.updatedAt);
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 3),
+      padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 3),
       child: Row(
         children: [
           SizedBox(
@@ -540,14 +548,16 @@ class _SyncPageState extends State<SyncPage> {
   }
 
   void _toggleTaskExpand(String taskId) {
+    final sync = context.read<SyncProvider>();
     if (_expandedTasks.contains(taskId)) {
       setState(() => _expandedTasks.remove(taskId));
+      sync.unwatchTaskDetail(taskId);
       return;
     }
 
     setState(() => _expandedTasks.add(taskId));
+    sync.watchTaskDetail(taskId);
 
-    final sync = context.read<SyncProvider>();
     if (sync.getCachedTaskDetail(taskId) == null && !_loadingDetails.contains(taskId)) {
       setState(() => _loadingDetails.add(taskId));
       sync.getTaskDetail(taskId).whenComplete(() {
@@ -556,6 +566,11 @@ class _SyncPageState extends State<SyncPage> {
         }
       });
     }
+  }
+
+  void _loadMoreDetail(String taskId) {
+    final sync = context.read<SyncProvider>();
+    sync.loadMoreTaskDetail(taskId);
   }
 
   Future<void> _stopSync(SyncProvider sync) async {

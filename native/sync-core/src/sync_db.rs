@@ -171,6 +171,23 @@ impl SyncDb {
             CREATE INDEX IF NOT EXISTS idx_task_item_status ON sync_task_item(status);
             CREATE INDEX IF NOT EXISTS idx_task_status ON sync_task(status);",
         )?;
+
+        // 添加 task_item 唯一索引（去重：保留 id 最小的记录）
+        // 先清理重复数据，再建唯一索引
+        let existing: Vec<String> = conn
+            .prepare("SELECT name FROM sqlite_master WHERE type='index' AND name='idx_task_item_unique'")?
+            .query_map([], |r| r.get(0))?
+            .filter_map(|r| r.ok())
+            .collect();
+        if existing.is_empty() {
+            conn.execute_batch(
+                "DELETE FROM sync_task_item WHERE id NOT IN (
+                    SELECT MIN(id) FROM sync_task_item GROUP BY task_id, relative_path, action_type
+                );
+                CREATE UNIQUE INDEX idx_task_item_unique ON sync_task_item(task_id, relative_path, action_type);"
+            )?;
+        }
+
         Ok(())
     }
 
@@ -621,6 +638,30 @@ impl SyncDb {
         Ok(conn.last_insert_rowid())
     }
 
+    /// 批量插入 task_item（单次持锁，用事务包裹）
+    pub async fn create_sync_task_items_batch(&self, items: &[SyncTaskItem]) -> Result<()> {
+        let conn = self.write_conn.lock().await;
+        let tx = conn.unchecked_transaction()?;
+        for item in items {
+            tx.execute(
+                "INSERT INTO sync_task_item (task_id, relative_path, action_type, status, file_size, error_message, created_at, updated_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                rusqlite::params![
+                    item.task_id,
+                    item.relative_path,
+                    item.action_type.as_str(),
+                    item.status.as_str(),
+                    item.file_size,
+                    item.error_message,
+                    item.created_at,
+                    item.updated_at,
+                ],
+            )?;
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
     pub async fn update_sync_task_item_status(
         &self,
         item_id: i64,
@@ -661,7 +702,14 @@ impl SyncDb {
             let conn = pool.get()?;
             let mut stmt = conn.prepare(
                 "SELECT id, task_id, relative_path, action_type, status, file_size, error_message, created_at, updated_at
-                 FROM sync_task_item WHERE task_id = ?1 ORDER BY id"
+                 FROM sync_task_item WHERE task_id = ?1
+                 ORDER BY CASE status
+                     WHEN 'running' THEN 0
+                     WHEN 'pending' THEN 1
+                     WHEN 'failed' THEN 2
+                     WHEN 'completed' THEN 3
+                     WHEN 'skipped' THEN 4
+                     ELSE 5 END, id"
             )?;
             let items = stmt.query_map(rusqlite::params![task_id], sync_task_item_from_row)?
                 .filter_map(|i| i.ok()).collect();
@@ -698,7 +746,7 @@ impl SyncDb {
                 params.push(Box::new(status.clone()));
             }
 
-            sql.push_str(" ORDER BY id DESC LIMIT ? OFFSET ?");
+            sql.push_str(" ORDER BY CASE status WHEN 'running' THEN 0 WHEN 'pending' THEN 1 WHEN 'failed' THEN 2 WHEN 'completed' THEN 3 WHEN 'skipped' THEN 4 ELSE 5 END, id DESC LIMIT ? OFFSET ?");
             params.push(Box::new(filter.limit));
             params.push(Box::new(filter.offset));
 
@@ -709,6 +757,20 @@ impl SyncDb {
             Ok(items)
         }).await??;
         Ok(result)
+    }
+
+    /// 清空所有同步数据（保留 sync_root 和 album_sync_record）
+    pub async fn reset_sync_data(&self) -> Result<()> {
+        let conn = self.write_conn.lock().await;
+        conn.execute_batch(
+            "DELETE FROM sync_task_item;
+             DELETE FROM sync_task;
+             DELETE FROM file_mapping;
+             DELETE FROM conflict;
+             DELETE FROM transfer_queue;
+             DELETE FROM sync_log;",
+        )?;
+        Ok(())
     }
 }
 

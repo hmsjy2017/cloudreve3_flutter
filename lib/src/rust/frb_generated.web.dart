@@ -3,7 +3,6 @@
 
 // ignore_for_file: unused_import, unused_element, unnecessary_import, duplicate_ignore, invalid_use_of_internal_member, annotate_overrides, non_constant_identifier_names, curly_braces_in_flow_control_structures, prefer_const_literals_to_create_immutables, unused_field
 
-
 // Static analysis wrongly picks the IO variant, thus ignore this
 // ignore_for_file: argument_type_not_assignable
 
@@ -14,192 +13,316 @@ import 'dart:convert';
 import 'frb_generated.dart';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated_web.dart';
 
+abstract class RustSyncApiApiImplPlatform extends BaseApiImpl<RustSyncApiWire> {
+  RustSyncApiApiImplPlatform({
+    required super.handler,
+    required super.wire,
+    required super.generalizedFrbRustBinding,
+    required super.portManager,
+  });
 
+  @protected
+  AnyhowException dco_decode_AnyhowException(dynamic raw);
 
+  @protected
+  RustStreamSink<SyncEventFfi> dco_decode_StreamSink_sync_event_ffi_Sse(
+    dynamic raw,
+  );
 
-                abstract class RustSyncApiApiImplPlatform extends BaseApiImpl<RustSyncApiWire> {
-                  RustSyncApiApiImplPlatform({
-                    required super.handler,
-                    required super.wire,
-                    required super.generalizedFrbRustBinding,
-                    required super.portManager,
-                  });
+  @protected
+  String dco_decode_String(dynamic raw);
 
-                  
+  @protected
+  bool dco_decode_bool(dynamic raw);
 
-                  @protected AnyhowException dco_decode_AnyhowException(dynamic raw);
+  @protected
+  SyncConfigFfi dco_decode_box_autoadd_sync_config_ffi(dynamic raw);
 
-@protected RustStreamSink<SyncEventFfi> dco_decode_StreamSink_sync_event_ffi_Sse(dynamic raw);
+  @protected
+  SyncSummaryFfi dco_decode_box_autoadd_sync_summary_ffi(dynamic raw);
 
-@protected String dco_decode_String(dynamic raw);
+  @protected
+  TaskItemFilterFfi dco_decode_box_autoadd_task_item_filter_ffi(dynamic raw);
 
-@protected bool dco_decode_bool(dynamic raw);
+  @protected
+  CloudAlbumCheckResultFfi dco_decode_cloud_album_check_result_ffi(dynamic raw);
 
-@protected SyncConfigFfi dco_decode_box_autoadd_sync_config_ffi(dynamic raw);
+  @protected
+  PlatformInt64 dco_decode_i_64(dynamic raw);
 
-@protected SyncSummaryFfi dco_decode_box_autoadd_sync_summary_ffi(dynamic raw);
+  @protected
+  List<String> dco_decode_list_String(dynamic raw);
 
-@protected TaskItemFilterFfi dco_decode_box_autoadd_task_item_filter_ffi(dynamic raw);
+  @protected
+  Uint8List dco_decode_list_prim_u_8_strict(dynamic raw);
 
-@protected CloudAlbumCheckResultFfi dco_decode_cloud_album_check_result_ffi(dynamic raw);
+  @protected
+  List<SyncTaskFfi> dco_decode_list_sync_task_ffi(dynamic raw);
 
-@protected PlatformInt64 dco_decode_i_64(dynamic raw);
+  @protected
+  List<SyncTaskItemFfi> dco_decode_list_sync_task_item_ffi(dynamic raw);
 
-@protected List<String> dco_decode_list_String(dynamic raw);
+  @protected
+  String? dco_decode_opt_String(dynamic raw);
 
-@protected Uint8List dco_decode_list_prim_u_8_strict(dynamic raw);
+  @protected
+  SyncConfigFfi dco_decode_sync_config_ffi(dynamic raw);
 
-@protected List<SyncTaskFfi> dco_decode_list_sync_task_ffi(dynamic raw);
+  @protected
+  SyncErrorFfi dco_decode_sync_error_ffi(dynamic raw);
 
-@protected List<SyncTaskItemFfi> dco_decode_list_sync_task_item_ffi(dynamic raw);
+  @protected
+  SyncEventFfi dco_decode_sync_event_ffi(dynamic raw);
 
-@protected String? dco_decode_opt_String(dynamic raw);
+  @protected
+  SyncStatusFfi dco_decode_sync_status_ffi(dynamic raw);
 
-@protected SyncConfigFfi dco_decode_sync_config_ffi(dynamic raw);
+  @protected
+  SyncSummaryFfi dco_decode_sync_summary_ffi(dynamic raw);
 
-@protected SyncErrorFfi dco_decode_sync_error_ffi(dynamic raw);
+  @protected
+  SyncTaskFfi dco_decode_sync_task_ffi(dynamic raw);
 
-@protected SyncEventFfi dco_decode_sync_event_ffi(dynamic raw);
+  @protected
+  SyncTaskItemFfi dco_decode_sync_task_item_ffi(dynamic raw);
 
-@protected SyncStatusFfi dco_decode_sync_status_ffi(dynamic raw);
+  @protected
+  TaskItemFilterFfi dco_decode_task_item_filter_ffi(dynamic raw);
 
-@protected SyncSummaryFfi dco_decode_sync_summary_ffi(dynamic raw);
+  @protected
+  int dco_decode_u_32(dynamic raw);
 
-@protected SyncTaskFfi dco_decode_sync_task_ffi(dynamic raw);
+  @protected
+  BigInt dco_decode_u_64(dynamic raw);
 
-@protected SyncTaskItemFfi dco_decode_sync_task_item_ffi(dynamic raw);
+  @protected
+  int dco_decode_u_8(dynamic raw);
 
-@protected TaskItemFilterFfi dco_decode_task_item_filter_ffi(dynamic raw);
+  @protected
+  void dco_decode_unit(dynamic raw);
 
-@protected int dco_decode_u_32(dynamic raw);
+  @protected
+  AnyhowException sse_decode_AnyhowException(SseDeserializer deserializer);
 
-@protected BigInt dco_decode_u_64(dynamic raw);
+  @protected
+  RustStreamSink<SyncEventFfi> sse_decode_StreamSink_sync_event_ffi_Sse(
+    SseDeserializer deserializer,
+  );
 
-@protected int dco_decode_u_8(dynamic raw);
+  @protected
+  String sse_decode_String(SseDeserializer deserializer);
 
-@protected void dco_decode_unit(dynamic raw);
+  @protected
+  bool sse_decode_bool(SseDeserializer deserializer);
 
-@protected AnyhowException sse_decode_AnyhowException(SseDeserializer deserializer);
+  @protected
+  SyncConfigFfi sse_decode_box_autoadd_sync_config_ffi(
+    SseDeserializer deserializer,
+  );
 
-@protected RustStreamSink<SyncEventFfi> sse_decode_StreamSink_sync_event_ffi_Sse(SseDeserializer deserializer);
+  @protected
+  SyncSummaryFfi sse_decode_box_autoadd_sync_summary_ffi(
+    SseDeserializer deserializer,
+  );
 
-@protected String sse_decode_String(SseDeserializer deserializer);
+  @protected
+  TaskItemFilterFfi sse_decode_box_autoadd_task_item_filter_ffi(
+    SseDeserializer deserializer,
+  );
 
-@protected bool sse_decode_bool(SseDeserializer deserializer);
+  @protected
+  CloudAlbumCheckResultFfi sse_decode_cloud_album_check_result_ffi(
+    SseDeserializer deserializer,
+  );
 
-@protected SyncConfigFfi sse_decode_box_autoadd_sync_config_ffi(SseDeserializer deserializer);
+  @protected
+  PlatformInt64 sse_decode_i_64(SseDeserializer deserializer);
 
-@protected SyncSummaryFfi sse_decode_box_autoadd_sync_summary_ffi(SseDeserializer deserializer);
+  @protected
+  List<String> sse_decode_list_String(SseDeserializer deserializer);
 
-@protected TaskItemFilterFfi sse_decode_box_autoadd_task_item_filter_ffi(SseDeserializer deserializer);
+  @protected
+  Uint8List sse_decode_list_prim_u_8_strict(SseDeserializer deserializer);
 
-@protected CloudAlbumCheckResultFfi sse_decode_cloud_album_check_result_ffi(SseDeserializer deserializer);
+  @protected
+  List<SyncTaskFfi> sse_decode_list_sync_task_ffi(SseDeserializer deserializer);
 
-@protected PlatformInt64 sse_decode_i_64(SseDeserializer deserializer);
+  @protected
+  List<SyncTaskItemFfi> sse_decode_list_sync_task_item_ffi(
+    SseDeserializer deserializer,
+  );
 
-@protected List<String> sse_decode_list_String(SseDeserializer deserializer);
+  @protected
+  String? sse_decode_opt_String(SseDeserializer deserializer);
+
+  @protected
+  SyncConfigFfi sse_decode_sync_config_ffi(SseDeserializer deserializer);
 
-@protected Uint8List sse_decode_list_prim_u_8_strict(SseDeserializer deserializer);
+  @protected
+  SyncErrorFfi sse_decode_sync_error_ffi(SseDeserializer deserializer);
+
+  @protected
+  SyncEventFfi sse_decode_sync_event_ffi(SseDeserializer deserializer);
+
+  @protected
+  SyncStatusFfi sse_decode_sync_status_ffi(SseDeserializer deserializer);
+
+  @protected
+  SyncSummaryFfi sse_decode_sync_summary_ffi(SseDeserializer deserializer);
 
-@protected List<SyncTaskFfi> sse_decode_list_sync_task_ffi(SseDeserializer deserializer);
+  @protected
+  SyncTaskFfi sse_decode_sync_task_ffi(SseDeserializer deserializer);
 
-@protected List<SyncTaskItemFfi> sse_decode_list_sync_task_item_ffi(SseDeserializer deserializer);
+  @protected
+  SyncTaskItemFfi sse_decode_sync_task_item_ffi(SseDeserializer deserializer);
 
-@protected String? sse_decode_opt_String(SseDeserializer deserializer);
+  @protected
+  TaskItemFilterFfi sse_decode_task_item_filter_ffi(
+    SseDeserializer deserializer,
+  );
 
-@protected SyncConfigFfi sse_decode_sync_config_ffi(SseDeserializer deserializer);
+  @protected
+  int sse_decode_u_32(SseDeserializer deserializer);
 
-@protected SyncErrorFfi sse_decode_sync_error_ffi(SseDeserializer deserializer);
+  @protected
+  BigInt sse_decode_u_64(SseDeserializer deserializer);
 
-@protected SyncEventFfi sse_decode_sync_event_ffi(SseDeserializer deserializer);
+  @protected
+  int sse_decode_u_8(SseDeserializer deserializer);
 
-@protected SyncStatusFfi sse_decode_sync_status_ffi(SseDeserializer deserializer);
+  @protected
+  void sse_decode_unit(SseDeserializer deserializer);
 
-@protected SyncSummaryFfi sse_decode_sync_summary_ffi(SseDeserializer deserializer);
+  @protected
+  int sse_decode_i_32(SseDeserializer deserializer);
+
+  @protected
+  void sse_encode_AnyhowException(
+    AnyhowException self,
+    SseSerializer serializer,
+  );
 
-@protected SyncTaskFfi sse_decode_sync_task_ffi(SseDeserializer deserializer);
+  @protected
+  void sse_encode_StreamSink_sync_event_ffi_Sse(
+    RustStreamSink<SyncEventFfi> self,
+    SseSerializer serializer,
+  );
 
-@protected SyncTaskItemFfi sse_decode_sync_task_item_ffi(SseDeserializer deserializer);
+  @protected
+  void sse_encode_String(String self, SseSerializer serializer);
 
-@protected TaskItemFilterFfi sse_decode_task_item_filter_ffi(SseDeserializer deserializer);
+  @protected
+  void sse_encode_bool(bool self, SseSerializer serializer);
 
-@protected int sse_decode_u_32(SseDeserializer deserializer);
+  @protected
+  void sse_encode_box_autoadd_sync_config_ffi(
+    SyncConfigFfi self,
+    SseSerializer serializer,
+  );
 
-@protected BigInt sse_decode_u_64(SseDeserializer deserializer);
+  @protected
+  void sse_encode_box_autoadd_sync_summary_ffi(
+    SyncSummaryFfi self,
+    SseSerializer serializer,
+  );
 
-@protected int sse_decode_u_8(SseDeserializer deserializer);
+  @protected
+  void sse_encode_box_autoadd_task_item_filter_ffi(
+    TaskItemFilterFfi self,
+    SseSerializer serializer,
+  );
 
-@protected void sse_decode_unit(SseDeserializer deserializer);
+  @protected
+  void sse_encode_cloud_album_check_result_ffi(
+    CloudAlbumCheckResultFfi self,
+    SseSerializer serializer,
+  );
 
-@protected int sse_decode_i_32(SseDeserializer deserializer);
+  @protected
+  void sse_encode_i_64(PlatformInt64 self, SseSerializer serializer);
 
-@protected void sse_encode_AnyhowException(AnyhowException self, SseSerializer serializer);
+  @protected
+  void sse_encode_list_String(List<String> self, SseSerializer serializer);
 
-@protected void sse_encode_StreamSink_sync_event_ffi_Sse(RustStreamSink<SyncEventFfi> self, SseSerializer serializer);
+  @protected
+  void sse_encode_list_prim_u_8_strict(
+    Uint8List self,
+    SseSerializer serializer,
+  );
 
-@protected void sse_encode_String(String self, SseSerializer serializer);
+  @protected
+  void sse_encode_list_sync_task_ffi(
+    List<SyncTaskFfi> self,
+    SseSerializer serializer,
+  );
 
-@protected void sse_encode_bool(bool self, SseSerializer serializer);
+  @protected
+  void sse_encode_list_sync_task_item_ffi(
+    List<SyncTaskItemFfi> self,
+    SseSerializer serializer,
+  );
 
-@protected void sse_encode_box_autoadd_sync_config_ffi(SyncConfigFfi self, SseSerializer serializer);
+  @protected
+  void sse_encode_opt_String(String? self, SseSerializer serializer);
 
-@protected void sse_encode_box_autoadd_sync_summary_ffi(SyncSummaryFfi self, SseSerializer serializer);
+  @protected
+  void sse_encode_sync_config_ffi(SyncConfigFfi self, SseSerializer serializer);
 
-@protected void sse_encode_box_autoadd_task_item_filter_ffi(TaskItemFilterFfi self, SseSerializer serializer);
+  @protected
+  void sse_encode_sync_error_ffi(SyncErrorFfi self, SseSerializer serializer);
 
-@protected void sse_encode_cloud_album_check_result_ffi(CloudAlbumCheckResultFfi self, SseSerializer serializer);
+  @protected
+  void sse_encode_sync_event_ffi(SyncEventFfi self, SseSerializer serializer);
 
-@protected void sse_encode_i_64(PlatformInt64 self, SseSerializer serializer);
+  @protected
+  void sse_encode_sync_status_ffi(SyncStatusFfi self, SseSerializer serializer);
 
-@protected void sse_encode_list_String(List<String> self, SseSerializer serializer);
+  @protected
+  void sse_encode_sync_summary_ffi(
+    SyncSummaryFfi self,
+    SseSerializer serializer,
+  );
 
-@protected void sse_encode_list_prim_u_8_strict(Uint8List self, SseSerializer serializer);
+  @protected
+  void sse_encode_sync_task_ffi(SyncTaskFfi self, SseSerializer serializer);
 
-@protected void sse_encode_list_sync_task_ffi(List<SyncTaskFfi> self, SseSerializer serializer);
+  @protected
+  void sse_encode_sync_task_item_ffi(
+    SyncTaskItemFfi self,
+    SseSerializer serializer,
+  );
 
-@protected void sse_encode_list_sync_task_item_ffi(List<SyncTaskItemFfi> self, SseSerializer serializer);
+  @protected
+  void sse_encode_task_item_filter_ffi(
+    TaskItemFilterFfi self,
+    SseSerializer serializer,
+  );
 
-@protected void sse_encode_opt_String(String? self, SseSerializer serializer);
+  @protected
+  void sse_encode_u_32(int self, SseSerializer serializer);
 
-@protected void sse_encode_sync_config_ffi(SyncConfigFfi self, SseSerializer serializer);
+  @protected
+  void sse_encode_u_64(BigInt self, SseSerializer serializer);
 
-@protected void sse_encode_sync_error_ffi(SyncErrorFfi self, SseSerializer serializer);
+  @protected
+  void sse_encode_u_8(int self, SseSerializer serializer);
 
-@protected void sse_encode_sync_event_ffi(SyncEventFfi self, SseSerializer serializer);
+  @protected
+  void sse_encode_unit(void self, SseSerializer serializer);
 
-@protected void sse_encode_sync_status_ffi(SyncStatusFfi self, SseSerializer serializer);
-
-@protected void sse_encode_sync_summary_ffi(SyncSummaryFfi self, SseSerializer serializer);
-
-@protected void sse_encode_sync_task_ffi(SyncTaskFfi self, SseSerializer serializer);
-
-@protected void sse_encode_sync_task_item_ffi(SyncTaskItemFfi self, SseSerializer serializer);
-
-@protected void sse_encode_task_item_filter_ffi(TaskItemFilterFfi self, SseSerializer serializer);
-
-@protected void sse_encode_u_32(int self, SseSerializer serializer);
-
-@protected void sse_encode_u_64(BigInt self, SseSerializer serializer);
-
-@protected void sse_encode_u_8(int self, SseSerializer serializer);
-
-@protected void sse_encode_unit(void self, SseSerializer serializer);
-
-@protected void sse_encode_i_32(int self, SseSerializer serializer);
-                }
-                
-
+  @protected
+  void sse_encode_i_32(int self, SseSerializer serializer);
+}
 
 // Section: wire_class
 
 class RustSyncApiWire implements BaseWire {
-            RustSyncApiWire.fromExternalLibrary(ExternalLibrary lib);
+  RustSyncApiWire.fromExternalLibrary(ExternalLibrary lib);
+}
 
-            
-        }
-        @JS('wasm_bindgen') external RustSyncApiWasmModule get wasmModule;
+@JS('wasm_bindgen')
+external RustSyncApiWasmModule get wasmModule;
 
-        @JS() @anonymous extension type RustSyncApiWasmModule._(JSObject _) implements JSObject {
-            
-        }
-        
+@JS()
+@anonymous
+extension type RustSyncApiWasmModule._(JSObject _) implements JSObject {}

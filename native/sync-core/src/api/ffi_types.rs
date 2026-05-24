@@ -25,6 +25,7 @@ pub struct SyncConfigFfi {
     pub max_workers: u32,
     pub data_dir: String,
     pub client_id: String,
+    pub log_level: String,
 }
 
 /// 同步状态快照

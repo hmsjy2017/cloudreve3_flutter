@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:ui';
 import 'package:cloudreve4_flutter/core/utils/app_logger.dart';
+import 'package:logger/logger.dart' show Level;
 import 'package:cloudreve4_flutter/presentation/widgets/desktop_title_bar.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -11,6 +12,8 @@ import 'package:media_kit/media_kit.dart';
 import 'package:oktoast/oktoast.dart';
 import 'package:window_manager/window_manager.dart';
 import 'config/app_config.dart';
+import 'core/constants/storage_keys.dart';
+import 'services/storage_service.dart';
 import 'presentation/providers/auth_provider.dart';
 import 'presentation/providers/file_manager_provider.dart';
 import 'presentation/providers/navigation_provider.dart';
@@ -37,8 +40,30 @@ import 'src/rust/frb_generated.dart' show RustSyncApi;
 
 final RouteObserver<PageRoute> routeObserver = RouteObserver<PageRoute>();
 
+Level _parseLogLevel(String level) {
+  return switch (level) {
+    'error' => Level.error,
+    'warning' => Level.warning,
+    'info' => Level.info,
+    'debug' => Level.debug,
+    'trace' => Level.trace,
+    _ => Level.info,
+  };
+}
+
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // 初始化日志（必须最先，否则后续任何 AppLogger 调用都会触发 fallback Logger 导致文件输出失效）
+  await AppLogger.init();
+  // 从持久化恢复日志级别
+  final savedLevel = await StorageService.instance.getString(StorageKeys.logLevel);
+  if (savedLevel != null) {
+    final level = _parseLogLevel(savedLevel);
+    AppLogger.setLevel(level);
+  }
+  AppLogger.i("应用启动，日志系统就绪");
+
   UploadForegroundService.initCommunicationPort();
 
   // 初始化 Flutter Rust Bridge
@@ -65,10 +90,6 @@ void main() async {
     }
     return false;
   };
-
-  // 初始化日志
-  await AppLogger.init();
-  AppLogger.i("应用启动，日志系统就绪");
 
   // 桌面端初始化窗口管理和系统托盘
   if (Platform.isWindows || Platform.isLinux) {

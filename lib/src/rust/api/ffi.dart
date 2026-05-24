@@ -7,75 +7,103 @@ import '../frb_generated.dart';
 import 'ffi_types.dart';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
+// These functions are ignored because they are not marked as `pub`: `album_result_to_ffi`, `apply_log_level`, `config_from_ffi`, `config_to_ffi`, `error_to_ffi`, `get_engine`, `status_to_ffi`, `summary_to_ffi`, `task_item_to_ffi`, `task_to_ffi`
 
-            // These functions are ignored because they are not marked as `pub`: `album_result_to_ffi`, `config_from_ffi`, `config_to_ffi`, `error_to_ffi`, `get_engine`, `status_to_ffi`, `summary_to_ffi`, `task_item_to_ffi`, `task_to_ffi`
-
-
-            /// 初始化同步引擎
-Future<void>  initSyncEngine({required SyncConfigFfi config }) => RustSyncApi.instance.api.crateApiFfiInitSyncEngine(config: config);
+/// 初始化同步引擎
+Future<void> initSyncEngine({required SyncConfigFfi config}) =>
+    RustSyncApi.instance.api.crateApiFfiInitSyncEngine(config: config);
 
 /// 销毁同步引擎
-Future<void>  disposeSyncEngine() => RustSyncApi.instance.api.crateApiFfiDisposeSyncEngine();
+Future<void> disposeSyncEngine() =>
+    RustSyncApi.instance.api.crateApiFfiDisposeSyncEngine();
 
 /// 执行初始全量同步
-Future<SyncSummaryFfi>  startInitialSync() => RustSyncApi.instance.api.crateApiFfiStartInitialSync();
+Future<SyncSummaryFfi> startInitialSync() =>
+    RustSyncApi.instance.api.crateApiFfiStartInitialSync();
 
 /// 启动持续同步（后台运行，立即返回）
-Future<void>  startContinuousSync() => RustSyncApi.instance.api.crateApiFfiStartContinuousSync();
+Future<void> startContinuousSync() =>
+    RustSyncApi.instance.api.crateApiFfiStartContinuousSync();
 
 /// 停止同步
-Future<void>  stopSync() => RustSyncApi.instance.api.crateApiFfiStopSync();
+Future<void> stopSync() => RustSyncApi.instance.api.crateApiFfiStopSync();
 
 /// 暂停同步
-Future<void>  pauseSync() => RustSyncApi.instance.api.crateApiFfiPauseSync();
+Future<void> pauseSync() => RustSyncApi.instance.api.crateApiFfiPauseSync();
 
 /// 恢复同步
-Future<void>  resumeSync() => RustSyncApi.instance.api.crateApiFfiResumeSync();
+Future<void> resumeSync() => RustSyncApi.instance.api.crateApiFfiResumeSync();
 
 /// 强制同步（重新扫描全量差异）
-Future<SyncSummaryFfi>  forceSync() => RustSyncApi.instance.api.crateApiFfiForceSync();
+Future<SyncSummaryFfi> forceSync() =>
+    RustSyncApi.instance.api.crateApiFfiForceSync();
+
+/// 重置同步：停止任务 → 清空 DB → 清空本地目录 → 回到初始状态
+Future<void> resetSync() => RustSyncApi.instance.api.crateApiFfiResetSync();
 
 /// 获取同步状态快照
-Future<SyncStatusFfi>  getSyncStatus() => RustSyncApi.instance.api.crateApiFfiGetSyncStatus();
+Future<SyncStatusFfi> getSyncStatus() =>
+    RustSyncApi.instance.api.crateApiFfiGetSyncStatus();
 
 /// 获取活跃 Worker 数量
-Future<int>  getActiveWorkerCount() => RustSyncApi.instance.api.crateApiFfiGetActiveWorkerCount();
+Future<int> getActiveWorkerCount() =>
+    RustSyncApi.instance.api.crateApiFfiGetActiveWorkerCount();
 
 /// 获取同步配置
-Future<SyncConfigFfi>  getSyncConfig() => RustSyncApi.instance.api.crateApiFfiGetSyncConfig();
+Future<SyncConfigFfi> getSyncConfig() =>
+    RustSyncApi.instance.api.crateApiFfiGetSyncConfig();
 
 /// 更新同步配置
-Future<void>  updateSyncConfig({required SyncConfigFfi config }) => RustSyncApi.instance.api.crateApiFfiUpdateSyncConfig(config: config);
+Future<void> updateSyncConfig({required SyncConfigFfi config}) =>
+    RustSyncApi.instance.api.crateApiFfiUpdateSyncConfig(config: config);
 
 /// Dart 推送新 Token 给 Rust
-Future<void>  updateTokens({required String accessToken }) => RustSyncApi.instance.api.crateApiFfiUpdateTokens(accessToken: accessToken);
+Future<void> updateTokens({required String accessToken}) =>
+    RustSyncApi.instance.api.crateApiFfiUpdateTokens(accessToken: accessToken);
 
 /// 水合文件（Windows 按需下载）
-Future<void>  hydrateFile({required String localPath }) => RustSyncApi.instance.api.crateApiFfiHydrateFile(localPath: localPath);
+Future<void> hydrateFile({required String localPath}) =>
+    RustSyncApi.instance.api.crateApiFfiHydrateFile(localPath: localPath);
 
 /// 同步相册到云端
-Future<void>  syncAlbumToCloud({required List<String> albumPaths , required String remoteDcimUri }) => RustSyncApi.instance.api.crateApiFfiSyncAlbumToCloud(albumPaths: albumPaths, remoteDcimUri: remoteDcimUri);
+Future<void> syncAlbumToCloud({
+  required List<String> albumPaths,
+  required String remoteDcimUri,
+}) => RustSyncApi.instance.api.crateApiFfiSyncAlbumToCloud(
+  albumPaths: albumPaths,
+  remoteDcimUri: remoteDcimUri,
+);
 
 /// 检查云端是否存在 DCIM/Pictures 目录
-Future<CloudAlbumCheckResultFfi>  checkCloudAlbumDirs({required String baseUri }) => RustSyncApi.instance.api.crateApiFfiCheckCloudAlbumDirs(baseUri: baseUri);
+Future<CloudAlbumCheckResultFfi> checkCloudAlbumDirs({
+  required String baseUri,
+}) => RustSyncApi.instance.api.crateApiFfiCheckCloudAlbumDirs(baseUri: baseUri);
 
 /// 在云端创建 DCIM/Pictures 目录
-Future<void>  createCloudAlbumDirs({required String baseUri }) => RustSyncApi.instance.api.crateApiFfiCreateCloudAlbumDirs(baseUri: baseUri);
+Future<void> createCloudAlbumDirs({required String baseUri}) =>
+    RustSyncApi.instance.api.crateApiFfiCreateCloudAlbumDirs(baseUri: baseUri);
 
 /// 注册 Rust→Dart 事件推送通道
-Stream<SyncEventFfi>  registerSyncEventSink() => RustSyncApi.instance.api.crateApiFfiRegisterSyncEventSink();
+Stream<SyncEventFfi> registerSyncEventSink() =>
+    RustSyncApi.instance.api.crateApiFfiRegisterSyncEventSink();
+
+/// 运行时热修改日志级别（立即生效，无需重启）
+Future<void> setSyncLogLevel({required String level}) =>
+    RustSyncApi.instance.api.crateApiFfiSetSyncLogLevel(level: level);
 
 /// 获取活跃的同步任务列表
-Future<List<SyncTaskFfi>>  getActiveTasks() => RustSyncApi.instance.api.crateApiFfiGetActiveTasks();
+Future<List<SyncTaskFfi>> getActiveTasks() =>
+    RustSyncApi.instance.api.crateApiFfiGetActiveTasks();
 
 /// 获取最近同步任务列表
-Future<List<SyncTaskFfi>>  getRecentTasks({required int limit }) => RustSyncApi.instance.api.crateApiFfiGetRecentTasks(limit: limit);
+Future<List<SyncTaskFfi>> getRecentTasks({required int limit}) =>
+    RustSyncApi.instance.api.crateApiFfiGetRecentTasks(limit: limit);
 
 /// 获取任务详情（任务项列表）
-Future<List<SyncTaskItemFfi>>  getTaskDetail({required String taskId }) => RustSyncApi.instance.api.crateApiFfiGetTaskDetail(taskId: taskId);
+Future<List<SyncTaskItemFfi>> getTaskDetail({required String taskId}) =>
+    RustSyncApi.instance.api.crateApiFfiGetTaskDetail(taskId: taskId);
 
 /// 多维度查询任务项
-Future<List<SyncTaskItemFfi>>  queryTaskItems({required TaskItemFilterFfi filter }) => RustSyncApi.instance.api.crateApiFfiQueryTaskItems(filter: filter);
-
-            
-            
+Future<List<SyncTaskItemFfi>> queryTaskItems({
+  required TaskItemFilterFfi filter,
+}) => RustSyncApi.instance.api.crateApiFfiQueryTaskItems(filter: filter);

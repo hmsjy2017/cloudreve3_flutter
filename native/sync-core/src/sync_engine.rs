@@ -23,7 +23,7 @@ pub struct SyncEngine {
     config: RwLock<SyncConfig>,
     conflict: RwLock<ConflictResolver>,
     sync_root_id: Option<String>,
-    shutdown_token: CancellationToken,
+    shutdown_token: std::sync::Mutex<CancellationToken>,
     worker_pool: WorkerPool,
     #[allow(dead_code)]
     file_locks: Arc<FileLockRegistry>,
@@ -78,7 +78,7 @@ impl SyncEngine {
             config: RwLock::new(config),
             conflict: RwLock::new(conflict),
             sync_root_id,
-            shutdown_token,
+            shutdown_token: std::sync::Mutex::new(shutdown_token),
             worker_pool,
             file_locks,
             ensured_dirs,
@@ -103,12 +103,19 @@ impl SyncEngine {
     /// 初始全量同步
     pub async fn run_initial_sync(&self) -> Result<SyncSummary> {
         let start = Instant::now();
+
+        // 重置 shutdown token，确保可重新启动
+        let new_token = CancellationToken::new();
+        *self.shutdown_token.lock().unwrap() = new_token.clone();
+        self.worker_pool.update_shutdown_token(new_token);
+
         *self.state.write().await = SyncState::Initializing;
 
-        let (local_root, remote_root) = {
+        let (local_root, remote_root, sync_mode) = {
             let config = self.config.read().await;
-            (config.local_root.clone(), config.remote_root.clone())
+            (config.local_root.clone(), config.remote_root.clone(), config.sync_mode.clone())
         };
+        tracing::info!("开始初始同步, 模式={:?}", sync_mode);
 
         let scanner = FsScanner::new();
         tracing::info!("开始扫描本地文件系统: {}", local_root.display());
@@ -120,10 +127,6 @@ impl SyncEngine {
         tracing::info!("远程扫描完成: {} 个条目", remote_files.len());
 
         let db_mappings = self.load_all_mappings().await?;
-        let sync_mode = {
-            let config = self.config.read().await;
-            config.sync_mode.clone()
-        };
         let plan = crate::diff::compute_diff(&local_files, &remote_files, &db_mappings, &remote_root, &sync_mode);
         tracing::info!(
             "差异计算完成: 上传={}, 下载={}, 删本地={}, 删远程={}, 冲突={}",
@@ -182,7 +185,7 @@ impl SyncEngine {
         // 仅 UploadOnly 和 Full 启动本地文件监听
         let mut local_rx = if matches!(sync_mode, SyncMode::UploadOnly | SyncMode::Full) {
             let (local_tx, rx) = tokio::sync::mpsc::channel::<LocalFileEvent>(256);
-            let shutdown_clone = self.shutdown_token.clone();
+            let shutdown_clone = self.shutdown_token.lock().unwrap().clone();
             let watch_root = local_root.clone();
 
             std::thread::spawn(move || {
@@ -280,9 +283,10 @@ impl SyncEngine {
             std::time::Duration::from_millis(500),
         );
 
+        let shutdown_token = self.shutdown_token.lock().unwrap().clone();
         loop {
             tokio::select! {
-                _ = self.shutdown_token.cancelled() => {
+                _ = shutdown_token.cancelled() => {
                     tracing::info!("持续同步收到停止信号");
                     break;
                 }
@@ -560,6 +564,8 @@ impl SyncEngine {
         if !create_paths.is_empty() {
             let mut uploads = Vec::new();
             let mut dir_paths: Vec<String> = Vec::new();
+            let mut skipped_unstable = 0usize;
+            let mut skipped_uploading = 0usize;
 
             for (relative, path) in &create_paths {
                 if let Ok(metadata) = tokio::fs::metadata(path).await {
@@ -569,6 +575,20 @@ impl SyncEngine {
 
                     if metadata.is_dir() {
                         dir_paths.push(relative.clone());
+                        continue;
+                    }
+
+                    // 去重：跳过已在上传队列中的文件
+                    if self.worker_pool.is_uploading(relative) {
+                        skipped_uploading += 1;
+                        tracing::debug!("文件正在上传中，跳过: {}", relative);
+                        continue;
+                    }
+
+                    // 文件稳定性检测：尝试独占读取，失败说明文件仍在被写入（如大文件复制中）
+                    if !is_file_stable(path).await {
+                        skipped_unstable += 1;
+                        tracing::debug!("文件尚未稳定（可能正在写入），跳过: {}", relative);
                         continue;
                     }
 
@@ -645,8 +665,9 @@ impl SyncEngine {
 
             if !uploads.is_empty() || !filtered_scan_dirs.is_empty() {
                 tracing::info!(
-                    "本地事件收集完成: 上传={}, 目录扫描={:?}",
+                    "本地事件收集完成: 上传={}, 目录扫描={:?}, 跳过(未稳定)={}, 跳过(重复上传)={}",
                     uploads.len(), filtered_scan_dirs,
+                    skipped_unstable, skipped_uploading,
                 );
                 let plan = SyncPlan {
                     uploads,
@@ -926,7 +947,48 @@ impl SyncEngine {
     }
 
     pub async fn stop(&self) -> Result<()> {
-        self.shutdown_token.cancel();
+        self.shutdown_token.lock().unwrap().cancel();
+        Ok(())
+    }
+
+    /// 重置同步：停止任务 → 清空 DB → 清空本地目录 → 回到初始状态
+    pub async fn reset_sync(&self) -> Result<()> {
+        tracing::info!("开始重置同步...");
+
+        // 1. 停止同步
+        self.shutdown_token.lock().unwrap().cancel();
+
+        // 2. 终止所有活跃 Worker
+        self.worker_pool.abort_all_workers().await;
+
+        // 3. 清空 DB 业务数据
+        self.db.reset_sync_data().await?;
+        tracing::info!("同步数据库已清空");
+
+        // 4. 清空本地同步目录（保留目录本身，只删内容）
+        let local_root = self.config.read().await.local_root.clone();
+        if local_root.exists() {
+            let entries = std::fs::read_dir(&local_root)
+                .map_err(|_| crate::errors::SyncError::DiskFull { needed: 0, available: 0 })?;
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.is_dir() {
+                    let _ = std::fs::remove_dir_all(&path);
+                } else {
+                    let _ = std::fs::remove_file(&path);
+                }
+            }
+            tracing::info!("本地同步目录已清空: {}", local_root.display());
+        }
+
+        // 5. 清空内存缓存
+        self.ensured_dirs.clear();
+        self.suppress_paths.clear();
+
+        // 6. 重置状态
+        *self.state.write().await = SyncState::Idle;
+
+        tracing::info!("同步重置完成，已回到初始状态");
         Ok(())
     }
 
@@ -1089,7 +1151,7 @@ impl SyncEngine {
     }
 
     pub async fn shutdown(self) -> Result<()> {
-        self.shutdown_token.cancel();
+        self.shutdown_token.lock().unwrap().cancel();
         Ok(())
     }
 
@@ -1182,4 +1244,47 @@ fn find_top_level_dirs(dirs: &[String]) -> Vec<String> {
     }
 
     top_level
+}
+
+/// 检测文件是否稳定（不在被写入中）
+///
+/// 策略：尝试以独占读方式打开文件，如果失败说明文件正被其他进程写入。
+/// 同时对比两次采样的文件大小，如果大小变化则说明还在写入中。
+async fn is_file_stable(path: &Path) -> bool {
+    // 第一次采样大小
+    let size1 = match tokio::fs::metadata(path).await {
+        Ok(m) if !m.is_dir() => m.len(),
+        _ => return false,
+    };
+
+    // 尝试独占打开：Windows 上如果文件被占用会失败
+    // 使用 std::fs 以便跨平台兼容
+    let path_display = path.display().to_string();
+    let can_open = tokio::task::spawn_blocking(move || {
+        match std::fs::File::open(&path_display) {
+            Ok(_) => true,
+            Err(e) => {
+                // 文件被占用（Windows SharingViolation 等）→ 不稳定
+                // 其他错误（文件不存在等）→ 也不稳定
+                tracing::trace!("文件稳定性检测打开失败: {}", e);
+                false
+            }
+        }
+    })
+    .await
+    .unwrap_or(false);
+
+    if !can_open {
+        return false;
+    }
+
+    // 短暂等待后再次采样大小
+    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+
+    let size2 = match tokio::fs::metadata(path).await {
+        Ok(m) if !m.is_dir() => m.len(),
+        _ => return false,
+    };
+
+    size1 == size2 && size1 > 0
 }

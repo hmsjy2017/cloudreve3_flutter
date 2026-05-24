@@ -32,4 +32,7 @@ class StorageKeys {
   static const String syncConfig = 'sync_config';
   static const String syncState = 'sync_state';
   static const String clientId = 'client_id';
+
+  // 日志级别
+  static const String logLevel = 'app_log_level';
 }

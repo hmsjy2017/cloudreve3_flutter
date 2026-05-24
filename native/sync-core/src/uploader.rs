@@ -54,6 +54,17 @@ pub async fn upload_file(
     let _permit = semaphore.acquire().await
         .map_err(|e| SyncError::Internal(format!("获取传输信号量失败: {}", e)))?;
 
+    // 信号量获取后标记为 Running（实际开始传输）
+    let _ = db
+        .update_task_item_status_by_path(
+            task_id,
+            &action.relative_path,
+            "upload",
+            &TaskItemStatus::Running,
+            None,
+        )
+        .await;
+
     let max_retries = 3u32;
 
     // 确保远程父目录链存在

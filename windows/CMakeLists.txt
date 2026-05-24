@@ -126,35 +126,40 @@ else()
     set(SYNC_CORE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../native")
     set(RUST_TARGET_DIR "${CMAKE_BINARY_DIR}/rust_target")
 
-    # --- Debug 模式下的编译与目标 ---
+    # 1. 编译时间戳文件
+    set(RUST_BUILD_STAMP "${CMAKE_CURRENT_BINARY_DIR}/sync_core_build.stamp")
+
+    # 2. 核心修复
+    # 不管是 Debug 还是 Release，我们都同时通知 Cargo 去检查这两个配置。
+    # 这样没有任何动态变量，参数数量是死死固定的，Cargo 100% 不会报错。
     add_custom_command(
-        OUTPUT "${RUST_TARGET_DIR}/debug/sync_core.dll"
+        OUTPUT "${RUST_BUILD_STAMP}"
+        COMMAND ${CMAKE_COMMAND} -E make_directory "${RUST_TARGET_DIR}"
+
+        # 无论如何，都去编译 Debug（供 flutter run 使用）
         COMMAND ${CARGO_CMD} build
             --manifest-path "${SYNC_CORE_DIR}/Cargo.toml"
             --target-dir "${RUST_TARGET_DIR}"
-        COMMENT "Building Rust sync engine (Debug)..."
-    )
 
-    # --- Release & Profile 模式下的编译与目标 ---
-    # 统一生成到 release 目录
-    add_custom_command(
-        OUTPUT "${RUST_TARGET_DIR}/release/sync_core.dll"
+        # 无论如何，都去编译 Release（供 flutter build 使用）
         COMMAND ${CARGO_CMD} build --release
             --manifest-path "${SYNC_CORE_DIR}/Cargo.toml"
             --target-dir "${RUST_TARGET_DIR}"
-        COMMENT "Building Rust sync engine (Release)..."
+
+        COMMAND ${CMAKE_COMMAND} -E touch "${RUST_BUILD_STAMP}"
+        COMMENT "Building Rust sync engine (Debug & Release)..."
+        VERBATIM
     )
 
-    add_custom_target(sync_core_build
-            DEPENDS
-                $<$<OR:$<CONFIG:Release>,$<CONFIG:Profile>>:${RUST_DLL_RELEASE}>
-                $<$<NOT:$<OR:$<CONFIG:Release>,$<CONFIG:Profile>>>:${RUST_DLL_DEBUG}>
-        )
+    # 3. 让目标依赖时间戳
+    add_custom_target(sync_core_build DEPENDS "${RUST_BUILD_STAMP}")
     add_dependencies(${BINARY_NAME} sync_core_build)
 
-    install(FILES
-        $<$<OR:$<CONFIG:Release>,$<CONFIG:Profile>>:${RUST_DLL_RELEASE}>
-        $<$<NOT:$<OR:$<CONFIG:Release>,$<CONFIG:Profile>>>:${RUST_DLL_DEBUG}>
+    # 4. 动态选择文件夹名称表达式（这个表达式只在安装阶段求值，安全可靠）
+    set(CONFIG_DIR_EXPR "$<IF:$<OR:$<CONFIG:Release>,$<CONFIG:Profile>>,release,debug>")
+
+    # 5. 动态选择 dll 路径进行安装复制
+    install(FILES "${RUST_TARGET_DIR}/${CONFIG_DIR_EXPR}/sync_core.dll"
         DESTINATION "${INSTALL_BUNDLE_LIB_DIR}"
         COMPONENT Runtime)
 endif()

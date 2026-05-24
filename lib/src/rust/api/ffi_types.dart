@@ -8,268 +8,439 @@ import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 import 'package:freezed_annotation/freezed_annotation.dart' hide protected;
 part 'ffi_types.freezed.dart';
 
-            // These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`
+// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`
 
+/// Android: 云端相册目录检查结果
+class CloudAlbumCheckResultFfi {
+  final bool dcimExists;
+  final bool picturesExists;
+  final String? dcimUri;
+  final String? picturesUri;
 
-            
+  const CloudAlbumCheckResultFfi({
+    required this.dcimExists,
+    required this.picturesExists,
+    this.dcimUri,
+    this.picturesUri,
+  });
 
-            /// Android: 云端相册目录检查结果
-class CloudAlbumCheckResultFfi  {
-                final bool dcimExists;
-final bool picturesExists;
-final String? dcimUri;
-final String? picturesUri;
+  @override
+  int get hashCode =>
+      dcimExists.hashCode ^
+      picturesExists.hashCode ^
+      dcimUri.hashCode ^
+      picturesUri.hashCode;
 
-                const CloudAlbumCheckResultFfi({required this.dcimExists ,required this.picturesExists ,this.dcimUri ,this.picturesUri ,});
-
-                
-                
-
-                
-        @override
-        int get hashCode => dcimExists.hashCode^picturesExists.hashCode^dcimUri.hashCode^picturesUri.hashCode;
-        
-
-                
-        @override
-        bool operator ==(Object other) =>
-            identical(this, other) ||
-            other is CloudAlbumCheckResultFfi &&
-                runtimeType == other.runtimeType
-                && dcimExists == other.dcimExists&& picturesExists == other.picturesExists&& dcimUri == other.dcimUri&& picturesUri == other.picturesUri;
-        
-            }
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is CloudAlbumCheckResultFfi &&
+          runtimeType == other.runtimeType &&
+          dcimExists == other.dcimExists &&
+          picturesExists == other.picturesExists &&
+          dcimUri == other.dcimUri &&
+          picturesUri == other.picturesUri;
+}
 
 /// 同步配置
-class SyncConfigFfi  {
-                final String baseUrl;
-final String accessToken;
-final String refreshToken;
-final String localRoot;
-final String remoteRoot;
-final String syncMode;
-final String conflictStrategy;
-final int maxConcurrentTransfers;
-final BigInt bandwidthLimitKbps;
-final List<String> excludedPaths;
-final int maxWorkers;
-final String dataDir;
-	final String clientId;
+class SyncConfigFfi {
+  final String baseUrl;
+  final String accessToken;
+  final String refreshToken;
+  final String localRoot;
+  final String remoteRoot;
+  final String syncMode;
+  final String conflictStrategy;
+  final int maxConcurrentTransfers;
+  final BigInt bandwidthLimitKbps;
+  final List<String> excludedPaths;
+  final int maxWorkers;
+  final String dataDir;
+  final String clientId;
+  final String logLevel;
 
-                const SyncConfigFfi({required this.baseUrl ,required this.accessToken ,required this.refreshToken ,required this.localRoot ,required this.remoteRoot ,required this.syncMode ,required this.conflictStrategy ,required this.maxConcurrentTransfers ,required this.bandwidthLimitKbps ,required this.excludedPaths ,required this.maxWorkers ,required this.dataDir ,required this.clientId ,});
+  const SyncConfigFfi({
+    required this.baseUrl,
+    required this.accessToken,
+    required this.refreshToken,
+    required this.localRoot,
+    required this.remoteRoot,
+    required this.syncMode,
+    required this.conflictStrategy,
+    required this.maxConcurrentTransfers,
+    required this.bandwidthLimitKbps,
+    required this.excludedPaths,
+    required this.maxWorkers,
+    required this.dataDir,
+    required this.clientId,
+    required this.logLevel,
+  });
 
-                
-                
+  @override
+  int get hashCode =>
+      baseUrl.hashCode ^
+      accessToken.hashCode ^
+      refreshToken.hashCode ^
+      localRoot.hashCode ^
+      remoteRoot.hashCode ^
+      syncMode.hashCode ^
+      conflictStrategy.hashCode ^
+      maxConcurrentTransfers.hashCode ^
+      bandwidthLimitKbps.hashCode ^
+      excludedPaths.hashCode ^
+      maxWorkers.hashCode ^
+      dataDir.hashCode ^
+      clientId.hashCode ^
+      logLevel.hashCode;
 
-                
-        @override
-        int get hashCode => baseUrl.hashCode^accessToken.hashCode^refreshToken.hashCode^localRoot.hashCode^remoteRoot.hashCode^syncMode.hashCode^conflictStrategy.hashCode^maxConcurrentTransfers.hashCode^bandwidthLimitKbps.hashCode^excludedPaths.hashCode^maxWorkers.hashCode^dataDir.hashCode^clientId.hashCode;
-        
-
-                
-        @override
-        bool operator ==(Object other) =>
-            identical(this, other) ||
-            other is SyncConfigFfi &&
-                runtimeType == other.runtimeType
-                && baseUrl == other.baseUrl&& accessToken == other.accessToken&& refreshToken == other.refreshToken&& localRoot == other.localRoot&& remoteRoot == other.remoteRoot&& syncMode == other.syncMode&& conflictStrategy == other.conflictStrategy&& maxConcurrentTransfers == other.maxConcurrentTransfers&& bandwidthLimitKbps == other.bandwidthLimitKbps&& excludedPaths == other.excludedPaths&& maxWorkers == other.maxWorkers&& dataDir == other.dataDir&& clientId == other.clientId;
-        
-            }
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is SyncConfigFfi &&
+          runtimeType == other.runtimeType &&
+          baseUrl == other.baseUrl &&
+          accessToken == other.accessToken &&
+          refreshToken == other.refreshToken &&
+          localRoot == other.localRoot &&
+          remoteRoot == other.remoteRoot &&
+          syncMode == other.syncMode &&
+          conflictStrategy == other.conflictStrategy &&
+          maxConcurrentTransfers == other.maxConcurrentTransfers &&
+          bandwidthLimitKbps == other.bandwidthLimitKbps &&
+          excludedPaths == other.excludedPaths &&
+          maxWorkers == other.maxWorkers &&
+          dataDir == other.dataDir &&
+          clientId == other.clientId &&
+          logLevel == other.logLevel;
+}
 
 @freezed
-                sealed class SyncErrorFfi with _$SyncErrorFfi implements FrbException {
-                    const SyncErrorFfi._();
+sealed class SyncErrorFfi with _$SyncErrorFfi implements FrbException {
+  const SyncErrorFfi._();
 
-                     const factory SyncErrorFfi.notInitialized() = SyncErrorFfi_NotInitialized;
- const factory SyncErrorFfi.networkError({   required String message , }) = SyncErrorFfi_NetworkError;
- const factory SyncErrorFfi.diskFull({   required BigInt needed ,  required BigInt available , }) = SyncErrorFfi_DiskFull;
- const factory SyncErrorFfi.authError({   required String message , }) = SyncErrorFfi_AuthError;
- const factory SyncErrorFfi.conflictError({   required int count , }) = SyncErrorFfi_ConflictError;
- const factory SyncErrorFfi.internalError({   required String message , }) = SyncErrorFfi_InternalError;
-
-                    
-
-                    
-                }
+  const factory SyncErrorFfi.notInitialized() = SyncErrorFfi_NotInitialized;
+  const factory SyncErrorFfi.networkError({required String message}) =
+      SyncErrorFfi_NetworkError;
+  const factory SyncErrorFfi.diskFull({
+    required BigInt needed,
+    required BigInt available,
+  }) = SyncErrorFfi_DiskFull;
+  const factory SyncErrorFfi.authError({required String message}) =
+      SyncErrorFfi_AuthError;
+  const factory SyncErrorFfi.conflictError({required int count}) =
+      SyncErrorFfi_ConflictError;
+  const factory SyncErrorFfi.internalError({required String message}) =
+      SyncErrorFfi_InternalError;
+}
 
 @freezed
-                sealed class SyncEventFfi with _$SyncEventFfi  {
-                    const SyncEventFfi._();
+sealed class SyncEventFfi with _$SyncEventFfi {
+  const SyncEventFfi._();
 
-                     const factory SyncEventFfi.stateChanged({   required String newState , }) = SyncEventFfi_StateChanged;
- const factory SyncEventFfi.progress({   required BigInt synced ,  required BigInt total ,  required String currentFile , }) = SyncEventFfi_Progress;
- const factory SyncEventFfi.fileUploaded({   required String localPath ,  required String remoteUri , }) = SyncEventFfi_FileUploaded;
- const factory SyncEventFfi.fileDownloaded({   required String localPath ,  required String remoteUri , }) = SyncEventFfi_FileDownloaded;
- const factory SyncEventFfi.conflictDetected({   required String localPath ,  required String conflictType , }) = SyncEventFfi_ConflictDetected;
- const factory SyncEventFfi.error({   required String message ,  required bool recoverable , }) = SyncEventFfi_Error;
- const factory SyncEventFfi.tokenExpired() = SyncEventFfi_TokenExpired;
- const factory SyncEventFfi.diskSpaceWarning({   required BigInt availableMb , }) = SyncEventFfi_DiskSpaceWarning;
- const factory SyncEventFfi.initialSyncComplete({   required SyncSummaryFfi summary , }) = SyncEventFfi_InitialSyncComplete;
- const factory SyncEventFfi.workerStarted({   required String taskId ,  required String trigger ,  required int uploadCount ,  required int downloadCount , }) = SyncEventFfi_WorkerStarted;
- const factory SyncEventFfi.workerCompleted({   required String taskId ,  required int uploaded ,  required int downloaded ,  required int renamed ,  required int moved ,  required int failed ,  required BigInt durationMs , }) = SyncEventFfi_WorkerCompleted;
- const factory SyncEventFfi.workerFailed({   required String taskId ,  required String message , }) = SyncEventFfi_WorkerFailed;
- const factory SyncEventFfi.taskItemUpdated({   required String taskId ,  required String relativePath ,  required String action ,  required String status , }) = SyncEventFfi_TaskItemUpdated;
-
-                    
-
-                    
-                }
+  const factory SyncEventFfi.stateChanged({required String newState}) =
+      SyncEventFfi_StateChanged;
+  const factory SyncEventFfi.progress({
+    required BigInt synced,
+    required BigInt total,
+    required String currentFile,
+  }) = SyncEventFfi_Progress;
+  const factory SyncEventFfi.fileUploaded({
+    required String localPath,
+    required String remoteUri,
+  }) = SyncEventFfi_FileUploaded;
+  const factory SyncEventFfi.fileDownloaded({
+    required String localPath,
+    required String remoteUri,
+  }) = SyncEventFfi_FileDownloaded;
+  const factory SyncEventFfi.conflictDetected({
+    required String localPath,
+    required String conflictType,
+  }) = SyncEventFfi_ConflictDetected;
+  const factory SyncEventFfi.error({
+    required String message,
+    required bool recoverable,
+  }) = SyncEventFfi_Error;
+  const factory SyncEventFfi.tokenExpired() = SyncEventFfi_TokenExpired;
+  const factory SyncEventFfi.diskSpaceWarning({required BigInt availableMb}) =
+      SyncEventFfi_DiskSpaceWarning;
+  const factory SyncEventFfi.initialSyncComplete({
+    required SyncSummaryFfi summary,
+  }) = SyncEventFfi_InitialSyncComplete;
+  const factory SyncEventFfi.workerStarted({
+    required String taskId,
+    required String trigger,
+    required int uploadCount,
+    required int downloadCount,
+  }) = SyncEventFfi_WorkerStarted;
+  const factory SyncEventFfi.workerCompleted({
+    required String taskId,
+    required int uploaded,
+    required int downloaded,
+    required int renamed,
+    required int moved,
+    required int failed,
+    required BigInt durationMs,
+  }) = SyncEventFfi_WorkerCompleted;
+  const factory SyncEventFfi.workerFailed({
+    required String taskId,
+    required String message,
+  }) = SyncEventFfi_WorkerFailed;
+  const factory SyncEventFfi.taskItemUpdated({
+    required String taskId,
+    required String relativePath,
+    required String action,
+    required String status,
+  }) = SyncEventFfi_TaskItemUpdated;
+}
 
 /// 同步状态快照
-class SyncStatusFfi  {
-                final String state;
-final BigInt syncedFiles;
-final BigInt totalFiles;
-final int uploadingCount;
-final int downloadingCount;
-final int conflictCount;
-final int errorCount;
-final String? lastSyncTime;
-final String? errorMessage;
+class SyncStatusFfi {
+  final String state;
+  final BigInt syncedFiles;
+  final BigInt totalFiles;
+  final int uploadingCount;
+  final int downloadingCount;
+  final int conflictCount;
+  final int errorCount;
+  final String? lastSyncTime;
+  final String? errorMessage;
 
-                const SyncStatusFfi({required this.state ,required this.syncedFiles ,required this.totalFiles ,required this.uploadingCount ,required this.downloadingCount ,required this.conflictCount ,required this.errorCount ,this.lastSyncTime ,this.errorMessage ,});
+  const SyncStatusFfi({
+    required this.state,
+    required this.syncedFiles,
+    required this.totalFiles,
+    required this.uploadingCount,
+    required this.downloadingCount,
+    required this.conflictCount,
+    required this.errorCount,
+    this.lastSyncTime,
+    this.errorMessage,
+  });
 
-                
-                
+  @override
+  int get hashCode =>
+      state.hashCode ^
+      syncedFiles.hashCode ^
+      totalFiles.hashCode ^
+      uploadingCount.hashCode ^
+      downloadingCount.hashCode ^
+      conflictCount.hashCode ^
+      errorCount.hashCode ^
+      lastSyncTime.hashCode ^
+      errorMessage.hashCode;
 
-                
-        @override
-        int get hashCode => state.hashCode^syncedFiles.hashCode^totalFiles.hashCode^uploadingCount.hashCode^downloadingCount.hashCode^conflictCount.hashCode^errorCount.hashCode^lastSyncTime.hashCode^errorMessage.hashCode;
-        
-
-                
-        @override
-        bool operator ==(Object other) =>
-            identical(this, other) ||
-            other is SyncStatusFfi &&
-                runtimeType == other.runtimeType
-                && state == other.state&& syncedFiles == other.syncedFiles&& totalFiles == other.totalFiles&& uploadingCount == other.uploadingCount&& downloadingCount == other.downloadingCount&& conflictCount == other.conflictCount&& errorCount == other.errorCount&& lastSyncTime == other.lastSyncTime&& errorMessage == other.errorMessage;
-        
-            }
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is SyncStatusFfi &&
+          runtimeType == other.runtimeType &&
+          state == other.state &&
+          syncedFiles == other.syncedFiles &&
+          totalFiles == other.totalFiles &&
+          uploadingCount == other.uploadingCount &&
+          downloadingCount == other.downloadingCount &&
+          conflictCount == other.conflictCount &&
+          errorCount == other.errorCount &&
+          lastSyncTime == other.lastSyncTime &&
+          errorMessage == other.errorMessage;
+}
 
 /// 初始同步摘要
-class SyncSummaryFfi  {
-                final int uploaded;
-final int downloaded;
-final int renamed;
-final int moved;
-final int conflicts;
-final int failed;
-final int skipped;
-final int deletedLocal;
-final int deletedRemote;
-final BigInt durationMs;
+class SyncSummaryFfi {
+  final int uploaded;
+  final int downloaded;
+  final int renamed;
+  final int moved;
+  final int conflicts;
+  final int failed;
+  final int skipped;
+  final int deletedLocal;
+  final int deletedRemote;
+  final BigInt durationMs;
 
-                const SyncSummaryFfi({required this.uploaded ,required this.downloaded ,required this.renamed ,required this.moved ,required this.conflicts ,required this.failed ,required this.skipped ,required this.deletedLocal ,required this.deletedRemote ,required this.durationMs ,});
+  const SyncSummaryFfi({
+    required this.uploaded,
+    required this.downloaded,
+    required this.renamed,
+    required this.moved,
+    required this.conflicts,
+    required this.failed,
+    required this.skipped,
+    required this.deletedLocal,
+    required this.deletedRemote,
+    required this.durationMs,
+  });
 
-                
-                
+  @override
+  int get hashCode =>
+      uploaded.hashCode ^
+      downloaded.hashCode ^
+      renamed.hashCode ^
+      moved.hashCode ^
+      conflicts.hashCode ^
+      failed.hashCode ^
+      skipped.hashCode ^
+      deletedLocal.hashCode ^
+      deletedRemote.hashCode ^
+      durationMs.hashCode;
 
-                
-        @override
-        int get hashCode => uploaded.hashCode^downloaded.hashCode^renamed.hashCode^moved.hashCode^conflicts.hashCode^failed.hashCode^skipped.hashCode^deletedLocal.hashCode^deletedRemote.hashCode^durationMs.hashCode;
-        
-
-                
-        @override
-        bool operator ==(Object other) =>
-            identical(this, other) ||
-            other is SyncSummaryFfi &&
-                runtimeType == other.runtimeType
-                && uploaded == other.uploaded&& downloaded == other.downloaded&& renamed == other.renamed&& moved == other.moved&& conflicts == other.conflicts&& failed == other.failed&& skipped == other.skipped&& deletedLocal == other.deletedLocal&& deletedRemote == other.deletedRemote&& durationMs == other.durationMs;
-        
-            }
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is SyncSummaryFfi &&
+          runtimeType == other.runtimeType &&
+          uploaded == other.uploaded &&
+          downloaded == other.downloaded &&
+          renamed == other.renamed &&
+          moved == other.moved &&
+          conflicts == other.conflicts &&
+          failed == other.failed &&
+          skipped == other.skipped &&
+          deletedLocal == other.deletedLocal &&
+          deletedRemote == other.deletedRemote &&
+          durationMs == other.durationMs;
+}
 
 /// 同步任务摘要（FFI）
-class SyncTaskFfi  {
-                final String id;
-final String trigger;
-final int totalCount;
-final int completedCount;
-final int failedCount;
-final String status;
-final String createdAt;
-final String updatedAt;
-final String? finishedAt;
+class SyncTaskFfi {
+  final String id;
+  final String trigger;
+  final int totalCount;
+  final int completedCount;
+  final int failedCount;
+  final String status;
+  final String createdAt;
+  final String updatedAt;
+  final String? finishedAt;
 
-                const SyncTaskFfi({required this.id ,required this.trigger ,required this.totalCount ,required this.completedCount ,required this.failedCount ,required this.status ,required this.createdAt ,required this.updatedAt ,this.finishedAt ,});
+  const SyncTaskFfi({
+    required this.id,
+    required this.trigger,
+    required this.totalCount,
+    required this.completedCount,
+    required this.failedCount,
+    required this.status,
+    required this.createdAt,
+    required this.updatedAt,
+    this.finishedAt,
+  });
 
-                
-                
+  @override
+  int get hashCode =>
+      id.hashCode ^
+      trigger.hashCode ^
+      totalCount.hashCode ^
+      completedCount.hashCode ^
+      failedCount.hashCode ^
+      status.hashCode ^
+      createdAt.hashCode ^
+      updatedAt.hashCode ^
+      finishedAt.hashCode;
 
-                
-        @override
-        int get hashCode => id.hashCode^trigger.hashCode^totalCount.hashCode^completedCount.hashCode^failedCount.hashCode^status.hashCode^createdAt.hashCode^updatedAt.hashCode^finishedAt.hashCode;
-        
-
-                
-        @override
-        bool operator ==(Object other) =>
-            identical(this, other) ||
-            other is SyncTaskFfi &&
-                runtimeType == other.runtimeType
-                && id == other.id&& trigger == other.trigger&& totalCount == other.totalCount&& completedCount == other.completedCount&& failedCount == other.failedCount&& status == other.status&& createdAt == other.createdAt&& updatedAt == other.updatedAt&& finishedAt == other.finishedAt;
-        
-            }
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is SyncTaskFfi &&
+          runtimeType == other.runtimeType &&
+          id == other.id &&
+          trigger == other.trigger &&
+          totalCount == other.totalCount &&
+          completedCount == other.completedCount &&
+          failedCount == other.failedCount &&
+          status == other.status &&
+          createdAt == other.createdAt &&
+          updatedAt == other.updatedAt &&
+          finishedAt == other.finishedAt;
+}
 
 /// 同步任务项（FFI）
-class SyncTaskItemFfi  {
-                final PlatformInt64 id;
-final String taskId;
-final String relativePath;
-final String actionType;
-final String status;
-final BigInt fileSize;
-final String? errorMessage;
-final String createdAt;
-final String updatedAt;
+class SyncTaskItemFfi {
+  final PlatformInt64 id;
+  final String taskId;
+  final String relativePath;
+  final String actionType;
+  final String status;
+  final BigInt fileSize;
+  final String? errorMessage;
+  final String createdAt;
+  final String updatedAt;
 
-                const SyncTaskItemFfi({required this.id ,required this.taskId ,required this.relativePath ,required this.actionType ,required this.status ,required this.fileSize ,this.errorMessage ,required this.createdAt ,required this.updatedAt ,});
+  const SyncTaskItemFfi({
+    required this.id,
+    required this.taskId,
+    required this.relativePath,
+    required this.actionType,
+    required this.status,
+    required this.fileSize,
+    this.errorMessage,
+    required this.createdAt,
+    required this.updatedAt,
+  });
 
-                
-                
+  @override
+  int get hashCode =>
+      id.hashCode ^
+      taskId.hashCode ^
+      relativePath.hashCode ^
+      actionType.hashCode ^
+      status.hashCode ^
+      fileSize.hashCode ^
+      errorMessage.hashCode ^
+      createdAt.hashCode ^
+      updatedAt.hashCode;
 
-                
-        @override
-        int get hashCode => id.hashCode^taskId.hashCode^relativePath.hashCode^actionType.hashCode^status.hashCode^fileSize.hashCode^errorMessage.hashCode^createdAt.hashCode^updatedAt.hashCode;
-        
-
-                
-        @override
-        bool operator ==(Object other) =>
-            identical(this, other) ||
-            other is SyncTaskItemFfi &&
-                runtimeType == other.runtimeType
-                && id == other.id&& taskId == other.taskId&& relativePath == other.relativePath&& actionType == other.actionType&& status == other.status&& fileSize == other.fileSize&& errorMessage == other.errorMessage&& createdAt == other.createdAt&& updatedAt == other.updatedAt;
-        
-            }
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is SyncTaskItemFfi &&
+          runtimeType == other.runtimeType &&
+          id == other.id &&
+          taskId == other.taskId &&
+          relativePath == other.relativePath &&
+          actionType == other.actionType &&
+          status == other.status &&
+          fileSize == other.fileSize &&
+          errorMessage == other.errorMessage &&
+          createdAt == other.createdAt &&
+          updatedAt == other.updatedAt;
+}
 
 /// 任务项查询过滤器（FFI）
-class TaskItemFilterFfi  {
-                final String? taskId;
-final String? relativePathContains;
-final String? actionType;
-final String? status;
-final int limit;
-final int offset;
+class TaskItemFilterFfi {
+  final String? taskId;
+  final String? relativePathContains;
+  final String? actionType;
+  final String? status;
+  final int limit;
+  final int offset;
 
-                const TaskItemFilterFfi({this.taskId ,this.relativePathContains ,this.actionType ,this.status ,required this.limit ,required this.offset ,});
+  const TaskItemFilterFfi({
+    this.taskId,
+    this.relativePathContains,
+    this.actionType,
+    this.status,
+    required this.limit,
+    required this.offset,
+  });
 
-                
-                
+  @override
+  int get hashCode =>
+      taskId.hashCode ^
+      relativePathContains.hashCode ^
+      actionType.hashCode ^
+      status.hashCode ^
+      limit.hashCode ^
+      offset.hashCode;
 
-                
-        @override
-        int get hashCode => taskId.hashCode^relativePathContains.hashCode^actionType.hashCode^status.hashCode^limit.hashCode^offset.hashCode;
-        
-
-                
-        @override
-        bool operator ==(Object other) =>
-            identical(this, other) ||
-            other is TaskItemFilterFfi &&
-                runtimeType == other.runtimeType
-                && taskId == other.taskId&& relativePathContains == other.relativePathContains&& actionType == other.actionType&& status == other.status&& limit == other.limit&& offset == other.offset;
-        
-            }
-            
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is TaskItemFilterFfi &&
+          runtimeType == other.runtimeType &&
+          taskId == other.taskId &&
+          relativePathContains == other.relativePathContains &&
+          actionType == other.actionType &&
+          status == other.status &&
+          limit == other.limit &&
+          offset == other.offset;
+}
