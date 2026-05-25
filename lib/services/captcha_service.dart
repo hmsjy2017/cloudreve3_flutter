@@ -1,5 +1,7 @@
 import 'dart:convert';
+import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../presentation/pages/auth/captcha_challenge_page.dart';
@@ -29,6 +31,11 @@ class CaptchaService {
   String? _captchaTicket;
   String? _captchaToken;
   bool _isLoadingCaptcha = false;
+
+  // 代理配置（仅 Windows 桌面端）
+  CaptchaProxyConfig? _proxyConfig;
+
+  bool get _isDesktop => !kIsWeb && (Platform.isWindows || Platform.isLinux);
 
   bool get isLoadingCaptcha => _isLoadingCaptcha;
   String? get captchaImage => _captchaImage;
@@ -200,7 +207,7 @@ class CaptchaService {
   }
 
   /// 跳转到 Web 验证码页面
-  Future<void> openCaptchaChallenge(BuildContext context) async {
+  Future<void> openCaptchaChallenge(BuildContext context, {VoidCallback? onVerified}) async {
     final server = ServerService.instance.currentServer;
     final config = captchaWebConfig;
 
@@ -214,6 +221,7 @@ class CaptchaService {
         builder: (_) => CaptchaChallengePage(
           config: config,
           baseUrl: server.baseUrl,
+          proxyConfig: _isDesktop ? _proxyConfig : null,
         ),
       ),
     );
@@ -221,6 +229,7 @@ class CaptchaService {
     if (token != null && token.isNotEmpty) {
       _captchaToken = token;
       ToastHelper.success('人机验证完成');
+      onVerified?.call();
     }
   }
 
@@ -271,31 +280,44 @@ class CaptchaService {
       final config = captchaWebConfig;
       final displayName = config?.displayName ?? '人机验证';
 
-      return Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          OutlinedButton.icon(
-            onPressed: _isLoadingCaptcha ? null : () => openCaptchaChallenge(context),
-            icon: Icon(
-              _captchaToken == null
-                  ? Icons.verified_user_outlined
-                  : Icons.verified,
-            ),
-            label: Text(
-              _captchaToken == null
-                  ? '点击完成 $displayName'
-                  : '$displayName 已完成，点击重新验证',
-            ),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            '当前验证码类型：$displayName',
-            style: TextStyle(
-              fontSize: 12,
-              color: Theme.of(context).hintColor,
-            ),
-          ),
-        ],
+      return StatefulBuilder(
+        builder: (context, setState) {
+          final hasProxy = _proxyConfig != null;
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              OutlinedButton.icon(
+                onPressed: _isLoadingCaptcha ? null : () async {
+                  await openCaptchaChallenge(context);
+                  setState(() {});
+                },
+                onLongPress: _isDesktop && Platform.isWindows
+                    ? () => _showProxyDialog(context, setState)
+                    : null,
+                icon: Icon(
+                  _captchaToken == null
+                      ? Icons.verified_user_outlined
+                      : Icons.verified,
+                ),
+                label: Text(
+                  _captchaToken == null
+                      ? '点击完成 $displayName'
+                      : '$displayName 已完成，点击重新验证',
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                _isDesktop && Platform.isWindows
+                    ? '当前验证码类型：$displayName${hasProxy ? '  (代理: ${_proxyConfig})' : ''}\n网络问题验证失败可长按上方按钮可以设置代理(仅windows)'
+                    : '当前验证码类型：$displayName',
+                style: TextStyle(
+                  fontSize: 12,
+                  color: Theme.of(context).hintColor,
+                ),
+              ),
+            ],
+          );
+        },
       );
     }
 
@@ -400,5 +422,81 @@ class CaptchaService {
       if (text.isNotEmpty) return text;
     }
     return null;
+  }
+
+  /// Windows 桌面端长按弹出代理设置对话框
+  void _showProxyDialog(BuildContext context, StateSetter setState) {
+    final hostCtrl = TextEditingController(text: _proxyConfig?.host ?? '');
+    final portCtrl = TextEditingController(text: _proxyConfig?.port.toString() ?? '');
+
+    showDialog(
+      context: context,
+      builder: (ctx) {
+        return AlertDialog(
+          title: const Text('WebView 代理设置'),
+          content: SizedBox(
+            width: 320,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  '仅支持无认证代理（HTTP/SOCKS5）',
+                  style: TextStyle(fontSize: 12, color: Theme.of(ctx).hintColor),
+                ),
+                const SizedBox(height: 16),
+                TextFormField(
+                  controller: hostCtrl,
+                  decoration: const InputDecoration(
+                    labelText: '代理地址',
+                    hintText: '127.0.0.1',
+                    prefixIcon: Icon(Icons.dns_outlined),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextFormField(
+                  controller: portCtrl,
+                  keyboardType: TextInputType.number,
+                  decoration: const InputDecoration(
+                    labelText: '端口',
+                    hintText: '7890',
+                    prefixIcon: Icon(Icons.numbers),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () {
+                _proxyConfig = null;
+                setState(() {});
+                Navigator.of(ctx).pop();
+                ToastHelper.success('已清除代理配置');
+              },
+              child: const Text('清除'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(),
+              child: const Text('取消'),
+            ),
+            FilledButton(
+              onPressed: () {
+                final host = hostCtrl.text.trim();
+                final port = int.tryParse(portCtrl.text.trim()) ?? 0;
+                if (host.isEmpty || port <= 0) {
+                  ToastHelper.failure('请输入有效的代理地址和端口');
+                  return;
+                }
+                _proxyConfig = CaptchaProxyConfig(host: host, port: port);
+                setState(() {});
+                Navigator.of(ctx).pop();
+                ToastHelper.success('代理已设置: $host:$port');
+              },
+              child: const Text('确定'),
+            ),
+          ],
+        );
+      },
+    );
   }
 }

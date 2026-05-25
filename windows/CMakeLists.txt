@@ -32,6 +32,21 @@ set(CMAKE_CXX_FLAGS_PROFILE "${CMAKE_CXX_FLAGS_RELEASE}")
 # Use Unicode for all projects.
 add_definitions(-DUNICODE -D_UNICODE)
 
+# flutter_inappwebview_windows requires NuGet; help CMake find it
+if(NOT DEFINED NUGET OR NUGET STREQUAL "NUGET-NOTFOUND")
+  find_program(NUGET nuget PATHS
+    "$ENV{USERPROFILE}\\.local\\bin"
+    "$ENV{LOCALAPPDATA}\\Microsoft\\WinGet\\Links"
+    "C:/ProgramData/chocolatey/bin"
+    NO_DEFAULT_PATH
+  )
+  find_program(NUGET nuget)
+  if(NUGET AND NOT NUGET STREQUAL "NUGET-NOTFOUND")
+    message(STATUS "Found NuGet: ${NUGET}")
+    set(NUGET "${NUGET}" CACHE FILEPATH "nuget executable" FORCE)
+  endif()
+endif()
+
 # Compilation settings that should be applied to most targets.
 #
 # Be cautious about adding new options here, as plugins use this function by
@@ -57,6 +72,12 @@ add_subdirectory("runner")
 # them to the application.
 include(flutter/generated_plugins.cmake)
 
+if(MSVC)
+    if(TARGET flutter_inappwebview_windows_plugin)
+        # flutter_inappwebview 插件有很多 MSVC 警告, 屏蔽该插件不输出任何警告
+        target_compile_options(flutter_inappwebview_windows_plugin PRIVATE /W0)
+    endif()
+endif()
 
 # === Installation ===
 # Support files are copied into place next to the executable, so that it can

@@ -1,7 +1,61 @@
 import 'dart:convert';
+import 'dart:io';
 
+import 'package:cloudreve4_flutter/core/utils/app_logger.dart';
+import 'package:cloudreve4_flutter/core/utils/win_env.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:webview_flutter/webview_flutter.dart';
+import 'package:flutter_inappwebview/flutter_inappwebview.dart';
+import 'package:webview_flutter/webview_flutter.dart' as mobile;
+
+// ═════════════════════════════════════════════════════
+//  WebView 代理配置（仅 Windows，无认证）
+// ═════════════════════════════════════════════════════
+
+class CaptchaProxyConfig {
+  final String host;
+  final int port;
+
+  const CaptchaProxyConfig({required this.host, required this.port});
+
+  String get proxyArg => '--proxy-server=http://$host:$port';
+
+  @override
+  String toString() => '$host:$port';
+}
+
+// ═════════════════════════════════════════════════════
+//  WebView2 代理环境变量管理
+// ═════════════════════════════════════════════════════
+
+const _envVarName = 'WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS';
+
+/// 为 WebView2 设置代理环境变量，返回旧值（用于恢复）
+String? _applyWebView2Proxy(CaptchaProxyConfig? proxy) {
+  if (!Platform.isWindows) return null;
+
+  final oldValue = Platform.environment[_envVarName];
+
+  if (proxy != null) {
+    winSetEnvVar(_envVarName, proxy.proxyArg);
+    AppLogger.i('WebView2 代理环境变量已设置: ${proxy.proxyArg}');
+  } else {
+    winSetEnvVar(_envVarName, null);
+    AppLogger.i('WebView2 代理环境变量已清除');
+  }
+
+  return oldValue;
+}
+
+/// 恢复 WebView2 环境变量到旧值
+void _restoreWebView2Env(String? oldValue) {
+  if (!Platform.isWindows) return;
+  winSetEnvVar(_envVarName, oldValue);
+}
+
+// ═════════════════════════════════════════════════════
+//  CaptchaWebConfig
+// ═════════════════════════════════════════════════════
 
 class CaptchaWebConfig {
   final String type;
@@ -50,14 +104,28 @@ class CaptchaWebConfig {
         );
 }
 
+// ─── 桌面端判断 ───────────────────────────────────────
+bool get _isDesktop => !kIsWeb && (Platform.isWindows || Platform.isLinux);
+
+// ─── 桌面 User-Agent ──────────────────────────────────
+const _desktopUserAgent =
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
+    '(KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36';
+
+// ═════════════════════════════════════════════════════
+//  CaptchaChallengePage
+// ═════════════════════════════════════════════════════
+
 class CaptchaChallengePage extends StatefulWidget {
   final CaptchaWebConfig config;
   final String baseUrl;
+  final CaptchaProxyConfig? proxyConfig;
 
   const CaptchaChallengePage({
     super.key,
     required this.config,
     required this.baseUrl,
+    this.proxyConfig,
   });
 
   @override
@@ -65,64 +133,95 @@ class CaptchaChallengePage extends StatefulWidget {
 }
 
 class _CaptchaChallengePageState extends State<CaptchaChallengePage> {
-  late final WebViewController _controller;
+  // ── 移动端 ──
+  mobile.WebViewController? _mobileController;
+
+  // ── 桌面端 ──
+  InAppWebViewController? _desktopController;
+  Key _desktopKey = UniqueKey();
+
+  // ── 共享状态 ──
   bool _isLoading = true;
   int _progress = 0;
   String? _errorMessage;
   String? _statusText;
+  bool _disposed = false;
+
+  // ── 代理环境变量旧值（用于恢复）──
+  String? _savedEnvValue;
+
+  // ── HTML ──
+  late String _currentHtml;
 
   @override
   void initState() {
     super.initState();
+    _currentHtml = _buildHtml(widget.config);
 
-    _controller = WebViewController()
-      ..setJavaScriptMode(JavaScriptMode.unrestricted)
-      ..setBackgroundColor(Colors.transparent)
-      ..addJavaScriptChannel(
-        'CaptchaBridge',
-        onMessageReceived: (message) {
-          _handleBridgeMessage(message.message);
-        },
-      )
-      ..setNavigationDelegate(
-        NavigationDelegate(
-          onProgress: (progress) {
-            if (mounted) setState(() => _progress = progress);
-          },
-          onPageFinished: (_) {
-            if (mounted) setState(() => _isLoading = false);
-          },
-          onWebResourceError: (error) {
-            if (mounted) {
-              setState(() {
-                _isLoading = false;
-                _errorMessage =
-                    '${error.errorCode}: ${error.description}'.trim();
-              });
-            }
-          },
-        ),
-      );
+    // Windows: 在 WebView2 创建前设置代理环境变量
+    if (_isDesktop && widget.proxyConfig != null && Platform.isWindows) {
+      _savedEnvValue = _applyWebView2Proxy(widget.proxyConfig);
+    }
 
-    _loadCaptcha();
+    if (!_isDesktop) {
+      _mobileController = mobile.WebViewController()
+        ..setJavaScriptMode(mobile.JavaScriptMode.unrestricted)
+        ..setBackgroundColor(Colors.transparent)
+        ..addJavaScriptChannel(
+          'CaptchaBridge',
+          onMessageReceived: (message) {
+            _handleBridgeMessage(message.message);
+          },
+        )
+        ..setNavigationDelegate(
+          mobile.NavigationDelegate(
+            onProgress: (progress) {
+              if (mounted) setState(() => _progress = progress);
+            },
+            onPageFinished: (_) {
+              if (mounted) setState(() => _isLoading = false);
+            },
+            onWebResourceError: (error) {
+              if (mounted) {
+                setState(() {
+                  _isLoading = false;
+                  _errorMessage =
+                      '${error.errorCode}: ${error.description}'.trim();
+                });
+              }
+            },
+          ),
+        )
+        ..loadHtmlString(_currentHtml, baseUrl: widget.baseUrl);
+    }
   }
 
+  // ─── 加载 / 刷新 ────────────────────────────────────
+
   Future<void> _loadCaptcha() async {
+    if (_disposed) return;
     setState(() {
       _isLoading = true;
       _errorMessage = null;
       _statusText = null;
       _progress = 0;
+      _currentHtml = _buildHtml(widget.config);
     });
 
-    final html = _buildHtml(widget.config);
-    await _controller.loadHtmlString(
-      html,
-      baseUrl: widget.baseUrl,
-    );
+    if (!_isDesktop && _mobileController != null) {
+      await _mobileController!.loadHtmlString(
+        _currentHtml,
+        baseUrl: widget.baseUrl,
+      );
+    } else if (_isDesktop) {
+      setState(() => _desktopKey = UniqueKey());
+    }
   }
 
+  // ─── Bridge 消息处理 ─────────────────────────────────
+
   void _handleBridgeMessage(String rawMessage) {
+    AppLogger.d('Bridge 收到消息: ${rawMessage.length > 100 ? rawMessage.substring(0, 100) + "..." : rawMessage}');
     try {
       final decoded = jsonDecode(rawMessage);
       if (decoded is! Map) return;
@@ -131,8 +230,18 @@ class _CaptchaChallengePageState extends State<CaptchaChallengePage> {
 
       if (type == 'success') {
         final token = decoded['token']?.toString() ?? '';
-        if (token.isNotEmpty && mounted) {
+        final jsTs = decoded['_jsTs'];
+        if (jsTs is num) {
+          final delayMs = DateTime.now().millisecondsSinceEpoch - jsTs.toInt();
+          AppLogger.d('Bridge 收到 success, JS→Dart 传输延迟=${delayMs}ms, token长度=${token.length}');
+        } else {
+          AppLogger.d('Bridge 收到 success, token长度=${token.length}');
+        }
+        if (token.isNotEmpty && mounted && !_disposed) {
+          _disposed = true;
+          AppLogger.d('准备 pop 返回登录页');
           Navigator.of(context).pop(token);
+          AppLogger.d('pop 完成');
         }
         return;
       }
@@ -157,6 +266,11 @@ class _CaptchaChallengePageState extends State<CaptchaChallengePage> {
         return;
       }
 
+      if (type == 'debug') {
+        AppLogger.d('JS debug: ${decoded['message']}');
+        return;
+      }
+
       if (type == 'expired') {
         if (mounted) {
           setState(() {
@@ -165,25 +279,131 @@ class _CaptchaChallengePageState extends State<CaptchaChallengePage> {
         }
         return;
       }
-    } catch (_) {
-      // 忽略非 JSON 消息。
+    } catch (_) {}
+  }
+
+  // ─── WebView 销毁 ───────────────────────────────────
+
+  void _cleanupWebView() {
+    if (_isDesktop) {
+      final ctrl = _desktopController;
+      _desktopController = null;
+      AppLogger.d('开始清理 WebView controller');
+      ctrl?.dispose();
+      AppLogger.d('WebView controller 已 dispose');
+      if (Platform.isWindows && _savedEnvValue != null) {
+        _restoreWebView2Env(_savedEnvValue!);
+        _savedEnvValue = null;
+      }
     }
   }
+
+  @override
+  void dispose() {
+    AppLogger.d('CaptchaChallengePage dispose 开始');
+    _disposed = true;
+    _cleanupWebView();
+    super.dispose();
+    AppLogger.d('CaptchaChallengePage dispose 完成');
+  }
+
+  // ═════════════════════════════════════════════════════
+  //  HTML 生成
+  // ═════════════════════════════════════════════════════
 
   String _buildHtml(CaptchaWebConfig config) {
     switch (config.type) {
       case 'turnstile':
-        return _buildTurnstileHtml(config.siteKey!);
+        return _baseHtml(
+          title: 'Cloudflare Turnstile',
+          body: '<div id="widget"></div>',
+          script: '''
+            function onTurnstileLoad() {
+              try {
+                turnstile.render('#widget', {
+                  sitekey: '${_js(config.siteKey!)}',
+                  callback: function(token) { solved(token); },
+                  'error-callback': function() { failed('Turnstile 验证失败，请重试'); },
+                  'expired-callback': function() { expired(); },
+                  'after-interactive-callback': function() {
+                    sendBridge({ type: 'debug', message: 'after-interactive fired' });
+                    markStatus('正在与 Cloudflare 服务器验证，请稍候...', false);
+                    sendBridge({ type: 'progress', progress: '服务器验证中' });
+                  }
+                });
+                markStatus('请完成人机验证', false);
+              } catch (e) {
+                failed(e && e.message ? e.message : String(e));
+              }
+            }
+          </script>
+          <script src="https://challenges.cloudflare.com/turnstile/v0/api.js?onload=onTurnstileLoad&render=explicit" async defer></script>
+          <script>
+          ''',
+        );
       case 'recaptcha':
-        return _buildRecaptchaHtml(config.siteKey!);
+        return _baseHtml(
+          title: 'reCAPTCHA V2',
+          body: '<div id="widget"></div>',
+          script: '''
+            function onRecaptchaLoad() {
+              try {
+                grecaptcha.render('widget', {
+                  sitekey: '${_js(config.siteKey!)}',
+                  callback: function(token) { solved(token); },
+                  'expired-callback': function() { expired(); },
+                  'error-callback': function() { failed('reCAPTCHA 加载或验证失败，请重试'); }
+                });
+                markStatus('请完成人机验证', false);
+              } catch (e) {
+                failed(e && e.message ? e.message : String(e));
+              }
+            }
+          </script>
+          <script src="https://www.google.com/recaptcha/api.js?onload=onRecaptchaLoad&render=explicit" async defer></script>
+          <script>
+          ''',
+        );
       case 'cap':
-        return _buildCapHtml(
-          instanceUrl: config.instanceUrl!,
-          siteKey: config.siteKey!,
-          assetServer: config.assetServer,
+        final endpoint = _capEndpoint(config.instanceUrl!, config.siteKey!);
+        final scriptUrl = _capWidgetScript(config.assetServer);
+        final safeEndpoint = const HtmlEscape().convert(endpoint);
+        final safeScriptUrl = const HtmlEscape().convert(scriptUrl);
+
+        return _baseHtml(
+          title: 'Cap',
+          body:
+              '<div id="widget"><cap-widget id="cap" required data-cap-api-endpoint="$safeEndpoint" data-cap-disable-haptics></cap-widget></div>',
+          script: '''
+            window.CAP_DISABLE_HAPTICS = true;
+            const cap = document.getElementById('cap');
+            if (cap) {
+              cap.addEventListener('solve', function(e) {
+                solved(e.detail && e.detail.token ? e.detail.token : '');
+              });
+              cap.addEventListener('progress', function(e) {
+                const progress = e.detail && e.detail.progress != null ? e.detail.progress : '';
+                markStatus('正在验证... ' + progress, false);
+                sendBridge({ type: 'progress', progress: progress });
+              });
+              cap.addEventListener('error', function(e) {
+                const message = e.detail && e.detail.message ? e.detail.message : 'Cap 验证失败';
+                failed(message);
+              });
+              markStatus('请完成人机验证', false);
+            }
+          </script>
+          <script type="module" src="$safeScriptUrl"></script>
+          <script>
+          ''',
         );
       default:
-        return _buildErrorHtml('不支持的验证码类型: ${config.type}');
+        return _baseHtml(
+          title: '验证码错误',
+          body:
+              '<div id="widget" class="error">${const HtmlEscape().convert('不支持的验证码类型: ${config.type}')}</div>',
+          script: "failed('不支持的验证码类型');",
+        );
     }
   }
 
@@ -272,8 +492,14 @@ class _CaptchaChallengePageState extends State<CaptchaChallengePage> {
   </div>
   <script>
     function sendBridge(payload) {
+      payload._jsTs = Date.now();
+      var json = JSON.stringify(payload);
       try {
-        CaptchaBridge.postMessage(JSON.stringify(payload));
+        if (typeof CaptchaBridge !== 'undefined' && CaptchaBridge.postMessage) {
+          CaptchaBridge.postMessage(json);
+        } else if (window.flutter_inappwebview && window.flutter_inappwebview.callHandler) {
+          window.flutter_inappwebview.callHandler('CaptchaBridge', json);
+        }
       } catch (e) {}
     }
     function markStatus(text, isError) {
@@ -301,135 +527,9 @@ class _CaptchaChallengePageState extends State<CaptchaChallengePage> {
 ''';
   }
 
-  String _buildTurnstileHtml(String siteKey) {
-    return _baseHtml(
-      title: 'Cloudflare Turnstile',
-      body: '<div id="widget"></div>',
-      script: '''
-        function onTurnstileLoad() {
-          try {
-            turnstile.render('#widget', {
-              sitekey: '${_js(siteKey)}',
-              callback: function(token) { solved(token); },
-              'error-callback': function() { failed('Turnstile 验证失败，请重试'); },
-              'expired-callback': function() { expired(); }
-            });
-            markStatus('请完成人机验证', false);
-          } catch (e) {
-            failed(e && e.message ? e.message : String(e));
-          }
-        }
-      </script>
-      <script src="https://challenges.cloudflare.com/turnstile/v0/api.js?onload=onTurnstileLoad&render=explicit" async defer></script>
-      <script>
-      ''',
-    );
-  }
-
-  String _buildRecaptchaHtml(String siteKey) {
-    return _baseHtml(
-      title: 'reCAPTCHA V2',
-      body: '<div id="widget"></div>',
-      script: '''
-        function onRecaptchaLoad() {
-          try {
-            grecaptcha.render('widget', {
-              sitekey: '${_js(siteKey)}',
-              callback: function(token) { solved(token); },
-              'expired-callback': function() { expired(); },
-              'error-callback': function() { failed('reCAPTCHA 加载或验证失败，请重试'); }
-            });
-            markStatus('请完成人机验证', false);
-          } catch (e) {
-            failed(e && e.message ? e.message : String(e));
-          }
-        }
-      </script>
-      <script src="https://www.google.com/recaptcha/api.js?onload=onRecaptchaLoad&render=explicit" async defer></script>
-      <script>
-      ''',
-    );
-  }
-
-  String _buildCapHtml({
-    required String instanceUrl,
-    required String siteKey,
-    String? assetServer,
-  }) {
-    final endpoint = _capEndpoint(instanceUrl, siteKey);
-    final scriptUrl = _capWidgetScript(assetServer);
-    final safeEndpoint = const HtmlEscape().convert(endpoint);
-    final safeScriptUrl = const HtmlEscape().convert(scriptUrl);
-
-    return _baseHtml(
-      title: 'Cap',
-      body:
-          '<div id="widget"><cap-widget id="cap" required data-cap-api-endpoint="$safeEndpoint" data-cap-disable-haptics></cap-widget></div>',
-      script: '''
-        window.CAP_DISABLE_HAPTICS = true;
-        const cap = document.getElementById('cap');
-        if (cap) {
-          cap.addEventListener('solve', function(e) {
-            solved(e.detail && e.detail.token ? e.detail.token : '');
-          });
-          cap.addEventListener('progress', function(e) {
-            const progress = e.detail && e.detail.progress != null ? e.detail.progress : '';
-            markStatus('正在验证... ' + progress, false);
-            sendBridge({ type: 'progress', progress: progress });
-          });
-          cap.addEventListener('error', function(e) {
-            const message = e.detail && e.detail.message ? e.detail.message : 'Cap 验证失败';
-            failed(message);
-          });
-          markStatus('请完成人机验证', false);
-        }
-      </script>
-      <script type="module" src="$safeScriptUrl"></script>
-      <script>
-      ''',
-    );
-  }
-
-  String _buildErrorHtml(String message) {
-    return _baseHtml(
-      title: '验证码错误',
-      body: '<div id="widget" class="error">${const HtmlEscape().convert(message)}</div>',
-      script: 'failed(${jsonEncode(message)});',
-    );
-  }
-
-  String _capEndpoint(String instanceUrl, String siteKey) {
-    final trimmedInstance = instanceUrl.trim().replaceAll(RegExp(r'/+$'), '');
-    final trimmedSiteKey = siteKey.trim().replaceAll(RegExp(r'^/+|/+$'), '');
-    return '$trimmedInstance/$trimmedSiteKey/';
-  }
-
-  String _capWidgetScript(String? assetServer) {
-    final asset = assetServer?.trim();
-    if (asset != null && asset.isNotEmpty) {
-      if (asset.startsWith('http://') || asset.startsWith('https://')) {
-        return asset;
-      }
-
-      if (asset.toLowerCase() == 'jsdelivr') {
-        return 'https://cdn.jsdelivr.net/npm/cap-widget';
-      }
-
-      if (asset.toLowerCase() == 'unpkg') {
-        return 'https://unpkg.com/cap-widget';
-      }
-    }
-
-    return 'https://cdn.jsdelivr.net/npm/cap-widget';
-  }
-
-  String _js(String input) {
-    return input
-        .replaceAll(r'\\', r'\\\\')
-        .replaceAll("'", r"\\'")
-        .replaceAll('\\n', r'\\n')
-        .replaceAll('\\r', r'\\r');
-  }
+  // ═════════════════════════════════════════════════════
+  //  Widget 构建
+  // ═════════════════════════════════════════════════════
 
   @override
   Widget build(BuildContext context) {
@@ -454,57 +554,173 @@ class _CaptchaChallengePageState extends State<CaptchaChallengePage> {
       ),
       body: Stack(
         children: [
-          WebViewWidget(controller: _controller),
+          _isDesktop ? _buildDesktopWebView() : _buildMobileWebView(),
           if (_isLoading)
             const Center(child: CircularProgressIndicator()),
           if (_errorMessage != null)
-            Align(
-              alignment: Alignment.bottomCenter,
-              child: SafeArea(
-                child: Container(
-                  width: double.infinity,
-                  margin: const EdgeInsets.all(12),
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: Theme.of(context).colorScheme.errorContainer,
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Text(
-                    _errorMessage!,
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      color: Theme.of(context).colorScheme.onErrorContainer,
-                    ),
-                  ),
+            _buildOverlayBanner(
+              child: Text(
+                _errorMessage!,
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  color: Theme.of(context).colorScheme.onErrorContainer,
                 ),
               ),
+              color: Theme.of(context).colorScheme.errorContainer,
             )
           else if (_statusText != null)
-            Align(
-              alignment: Alignment.bottomCenter,
-              child: SafeArea(
-                child: Container(
-                  margin: const EdgeInsets.all(12),
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 8,
-                  ),
-                  decoration: BoxDecoration(
-                    color: Theme.of(context)
-                        .colorScheme
-                        .surfaceContainerHighest
-                        .withValues(alpha: 0.92),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Text(
-                    _statusText!,
-                    textAlign: TextAlign.center,
-                  ),
-                ),
+            _buildOverlayBanner(
+              child: Text(
+                _statusText!,
+                textAlign: TextAlign.center,
               ),
             ),
         ],
       ),
     );
+  }
+
+  // ── 移动端 WebView ──────────────────────────────────
+
+  Widget _buildMobileWebView() {
+    return mobile.WebViewWidget(controller: _mobileController!);
+  }
+
+  // ── 桌面端 WebView ──────────────────────────────────
+
+  Widget _buildDesktopWebView() {
+    AppLogger.i('WebView 验证码 BaseUrl: ${WebUri(widget.baseUrl)}');
+
+    return InAppWebView(
+      key: _desktopKey,
+      initialSettings: InAppWebViewSettings(
+        javaScriptEnabled: true,
+        domStorageEnabled: true,
+        safeBrowsingEnabled: true,
+        isInspectable: true,
+        cacheMode: CacheMode.LOAD_NO_CACHE,
+        supportMultipleWindows: true,
+        allowUniversalAccessFromFileURLs: true,
+        allowFileAccessFromFileURLs: true,
+        userAgent: _desktopUserAgent,
+        transparentBackground: true,
+        supportZoom: false,
+        useHybridComposition: true,
+      ),
+      onWebViewCreated: (controller) {
+        _desktopController = controller;
+        controller.addJavaScriptHandler(
+          handlerName: 'CaptchaBridge',
+          callback: (args) {
+            if (args.isNotEmpty) {
+              _handleBridgeMessage(args[0].toString());
+            }
+          },
+        );
+
+        controller.loadUrl(
+          urlRequest: URLRequest(
+            url: WebUri("${widget.baseUrl}/virtual_captcha.html"),
+          ),
+        );
+      },
+      shouldInterceptRequest: (controller, request) async {
+        if (request.url.toString().contains('virtual_captcha.html')) {
+          AppLogger.i('黑魔法 -> 拦截成功，正在注入动态 HTML');
+          return WebResourceResponse(
+            contentType: 'text/html',
+            contentEncoding: 'utf-8',
+            data: Uint8List.fromList(utf8.encode(_currentHtml)),
+            statusCode: 200,
+            reasonPhrase: 'OK',
+          );
+        }
+
+        if (request.url.toString().contains('/h/b/rc') && request.method == 'POST') {
+          AppLogger.w('发现黑魔法后遗症校验请求 (POST)，执行强制 404');
+          await Future.delayed(Duration(seconds: 2));
+          return WebResourceResponse(
+            contentType: 'text/plain',
+            statusCode: 404,
+            reasonPhrase: 'Not Found',
+            data: Uint8List(0),
+          );
+        }
+        return null;
+      },
+      onLoadStart: (controller, url) {},
+      onLoadStop: (controller, url) {
+        if (mounted) setState(() => _isLoading = false);
+      },
+      onProgressChanged: (controller, progress) {
+        if (mounted) setState(() => _progress = progress);
+      },
+      onReceivedError: (controller, request, error) {
+        if (mounted) {
+          setState(() {
+            _isLoading = false;
+            _errorMessage = '${error.type}: ${error.description}'.trim();
+          });
+        }
+      },
+    );
+  }
+
+  // ── 通用底部提示条 ──────────────────────────────────
+
+  Widget _buildOverlayBanner({required Widget child, Color? color}) {
+    return Align(
+      alignment: Alignment.bottomCenter,
+      child: SafeArea(
+        child: Container(
+          width: double.infinity,
+          margin: const EdgeInsets.all(12),
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: color ??
+                Theme.of(context)
+                    .colorScheme
+                    .surfaceContainerHighest
+                    .withValues(alpha: 0.92),
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: child,
+        ),
+      ),
+    );
+  }
+
+  // ═════════════════════════════════════════════════════
+  //  辅助
+  // ═════════════════════════════════════════════════════
+
+  String _capEndpoint(String instanceUrl, String siteKey) {
+    final trimmedInstance = instanceUrl.trim().replaceAll(RegExp(r'/+$'), '');
+    final trimmedSiteKey = siteKey.trim().replaceAll(RegExp(r'^/+|/+$'), '');
+    return '$trimmedInstance/$trimmedSiteKey/';
+  }
+
+  String _capWidgetScript(String? assetServer) {
+    final asset = assetServer?.trim();
+    if (asset != null && asset.isNotEmpty) {
+      if (asset.startsWith('http://') || asset.startsWith('https://')) {
+        return asset;
+      }
+      if (asset.toLowerCase() == 'jsdelivr') {
+        return 'https://cdn.jsdelivr.net/npm/cap-widget';
+      }
+      if (asset.toLowerCase() == 'unpkg') {
+        return 'https://unpkg.com/cap-widget';
+      }
+    }
+    return 'https://cdn.jsdelivr.net/npm/cap-widget';
+  }
+
+  String _js(String input) {
+    return input
+        .replaceAll(r'\', r'\\')
+        .replaceAll("'", r"\'")
+        .replaceAll('\n', r'\n')
+        .replaceAll('\r', r'\r');
   }
 }
