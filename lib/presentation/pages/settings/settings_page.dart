@@ -16,6 +16,7 @@ import 'file_preferences_page.dart';
 import 'app_settings_page.dart';
 import 'credit_history_page.dart';
 import 'quick_access_settings_page.dart';
+import '../../../router/app_router.dart';
 
 /// 设置主页
 class SettingsPage extends StatefulWidget {
@@ -105,6 +106,12 @@ class _SettingsPageState extends State<SettingsPage> {
           _buildSection(
             title: '偏好',
             children: [
+              _SettingsTile(
+                icon: Icons.sync_outlined,
+                title: '文件同步',
+                subtitle: '本地与云端文件自动同步',
+                onTap: () => Navigator.of(context).pushNamed(RouteNames.syncSettings),
+              ),
               _SettingsTile(
                 icon: Icons.apps_outlined,
                 title: '快捷入口',

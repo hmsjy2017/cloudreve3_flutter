@@ -47,7 +47,7 @@ class FileBreadcrumb extends StatelessWidget {
               ),
               _buildBreadcrumbItem(
                 context,
-                name: pathParts[i],
+                name: _decodePathSegment(pathParts[i]),
                 path: '/${pathParts.sublist(0, i + 1).join('/')}',
                 icon: null,
                 primaryColor: colorScheme.primary,
@@ -58,6 +58,20 @@ class FileBreadcrumb extends StatelessWidget {
         ),
       ),
     );
+  }
+
+  String _decodePathSegment(String segment) {
+    var decoded = segment;
+    for (var i = 0; i < 5; i++) {
+      try {
+        final next = Uri.decodeComponent(decoded);
+        if (next == decoded) break;
+        decoded = next;
+      } catch (_) {
+        break;
+      }
+    }
+    return decoded;
   }
 
   Widget _buildBreadcrumbItem(

@@ -5,6 +5,7 @@ import '../../../services/api_service.dart';
 import '../../../services/server_service.dart';
 import '../../../services/storage_service.dart';
 import '../../providers/auth_provider.dart';
+import '../../providers/sync_provider.dart';
 
 /// 启动页
 class SplashPage extends StatefulWidget {
@@ -45,6 +46,16 @@ class _SplashPageState extends State<SplashPage> {
     if (!mounted) return;
 
     if (authProvider.isAuthenticated) {
+      // 自动恢复同步（如果之前处于同步状态）
+      if (!mounted) return;
+      final syncProvider = Provider.of<SyncProvider>(context, listen: false);
+      final token = authProvider.token;
+      await syncProvider.autoResumeIfNeeded(
+        currentAccessToken: token?.accessToken,
+        currentRefreshToken: token?.refreshToken,
+      );
+
+      if (!mounted) return;
       Navigator.of(context).pushReplacementNamed(RouteNames.home);
     } else {
       Navigator.of(context).pushReplacementNamed(RouteNames.login);

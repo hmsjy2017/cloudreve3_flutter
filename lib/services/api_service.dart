@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:dio/dio.dart';
 import '../config/api_config.dart';
+import '../services/storage_service.dart';
 import '../core/exceptions/app_exception.dart';
 import '../core/utils/app_logger.dart';
 
@@ -125,6 +126,11 @@ class ApiService {
             options.headers['Authorization'] = 'Bearer $token';
           }
         }
+        // 附加 X-Cr-Client-Id，服务端据此过滤 SSE 自身事件
+        try {
+          final clientId = await StorageService.instance.getOrCreateClientId();
+          options.headers['X-Cr-Client-Id'] = clientId;
+        } catch (_) {}
         return handler.next(options);
       },
     );

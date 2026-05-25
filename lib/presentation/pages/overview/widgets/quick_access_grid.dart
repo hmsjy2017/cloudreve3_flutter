@@ -69,6 +69,7 @@ class QuickAccessGrid extends StatelessWidget {
             child: _QuickAccessButton(
               item: items[index],
               onTap: () => _onTap(context, items[index]),
+              fillHeight: fillHeight,
             ),
           ),
         );
@@ -151,10 +152,12 @@ class QuickAccessGrid extends StatelessWidget {
 class _QuickAccessButton extends StatelessWidget {
   final QuickAccessConfig item;
   final VoidCallback onTap;
+  final bool fillHeight;
 
   const _QuickAccessButton({
     required this.item,
     required this.onTap,
+    this.fillHeight = false,
   });
 
   @override
@@ -183,24 +186,27 @@ class _QuickAccessButton extends StatelessWidget {
           ),
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Icon(item.icon, color: foreground, size: 22),
-                const SizedBox(width: 9),
-                Flexible(
-                  child: Text(
-                    item.label,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      color: foreground,
-                      fontWeight: FontWeight.w800,
-                      fontSize: 14,
+            child: SizedBox(
+              height: fillHeight ? double.infinity : null,
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(item.icon, color: foreground, size: 22),
+                  const SizedBox(width: 9),
+                  Flexible(
+                    child: Text(
+                      item.label,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: foreground,
+                        fontWeight: FontWeight.w800,
+                        fontSize: 14,
+                      ),
                     ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
           ),
         ),

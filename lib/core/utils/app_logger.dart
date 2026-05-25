@@ -10,6 +10,10 @@ class AppLogger {
   static Logger? _logger;
   static File? _logFile;
 
+  /// 当前日志级别（默认 info，debug 模式下也是 info 避免刷屏）
+  static Level _level = Level.info;
+  static Level get level => _level;
+
   /// 初始化日志，必须在 main 中 await
   static Future<void> init() async {
     if (_logger != null) return;
@@ -22,6 +26,10 @@ class AppLogger {
     }
     _logFile = File(p.join(logDir.path, 'log.txt'));
 
+    _createLogger();
+  }
+
+  static void _createLogger() {
     // 2. 配置多路输出：同时输出到控制台和文件
     _logger = Logger(
       printer: PrettyPrinter(
@@ -38,8 +46,14 @@ class AppLogger {
           file: _logFile!,
         ),
       ]),
-      filter: ProductionFilter(),
+      filter: _LevelFilter(_level),
     );
+  }
+
+  /// 运行时切换日志级别
+  static void setLevel(Level level) {
+    _level = level;
+    _createLogger();
   }
 
   // 使用 getter 确保 logger 已初始化，防止空指针
@@ -66,6 +80,9 @@ class AppLogger {
 
   /// Error 级别日志
   static void e(String message) =>  _instance.e(message);
+
+  /// Trace 级别日志（高频轮询/查询使用，仅 trace 级别可见）
+  static void t(String message) => _instance.t(message);
 
   /// Debug 级别日志（支持格式化）
   static void df(String message, List<Object> args) =>  _instance.d(message, error: args);
@@ -129,6 +146,17 @@ class AppLogger {
     }
     return '... (仅显示最近 $maxLines 行)\n\n'
         '${lines.sublist(lines.length - maxLines).join('\n')}';
+  }
+}
+
+/// 自定义级别过滤器：低于设定级别的日志被过滤
+class _LevelFilter extends LogFilter {
+  final Level minLevel;
+  _LevelFilter(this.minLevel);
+
+  @override
+  bool shouldLog(LogEvent event) {
+    return event.level.index >= minLevel.index;
   }
 }
 

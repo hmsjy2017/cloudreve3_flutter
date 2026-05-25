@@ -168,8 +168,7 @@ class _FilesPageState extends State<FilesPage> {
             if (fileManager.currentPath == '/') {
               return const Text('文件');
             }
-            final segments = fileManager.currentPath.split('/').where((s) => s.isNotEmpty).toList();
-            return Text(segments.isNotEmpty ? _decodePathSegment(segments.last) : '文件');
+            return _buildDesktopBreadcrumb(context, fileManager);
           }
           return _buildMobileBreadcrumb(context, fileManager);
         },
@@ -191,6 +190,50 @@ class _FilesPageState extends State<FilesPage> {
       }
     }
     return decoded;
+  }
+
+  Widget _buildDesktopBreadcrumb(BuildContext context, FileManagerProvider fileManager) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    final pathParts = fileManager.currentPath.split('/');
+    pathParts.removeWhere((part) => part.isEmpty);
+
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        InkWell(
+          onTap: () => fileManager.currentPath != '/' ? fileManager.enterFolder('/') : null,
+          borderRadius: BorderRadius.circular(6),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+            child: Icon(LucideIcons.home, size: 18, color: colorScheme.primary),
+          ),
+        ),
+        for (int i = 0; i < pathParts.length; i++) ...[
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 2),
+            child: Icon(LucideIcons.chevronRight, size: 14, color: theme.hintColor.withValues(alpha: 0.5)),
+          ),
+          InkWell(
+            onTap: () {
+              final targetPath = '/${pathParts.sublist(0, i + 1).join('/')}';
+              if (targetPath != fileManager.currentPath) fileManager.enterFolder(targetPath);
+            },
+            borderRadius: BorderRadius.circular(6),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+              child: Text(
+                _decodePathSegment(pathParts[i]),
+                style: TextStyle(
+                  color: i == pathParts.length - 1 ? colorScheme.onSurface : colorScheme.primary,
+                  fontWeight: i == pathParts.length - 1 ? FontWeight.w600 : FontWeight.normal,
+                ),
+              ),
+            ),
+          ),
+        ],
+      ],
+    );
   }
 
   Widget _buildMobileBreadcrumb(BuildContext context, FileManagerProvider fileManager) {

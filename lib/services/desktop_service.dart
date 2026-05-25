@@ -8,6 +8,8 @@ import 'package:tray_manager/tray_manager.dart';
 import '../config/app_config.dart';
 import '../core/utils/app_logger.dart';
 import '../presentation/providers/theme_provider.dart';
+import 'sync_service.dart';
+import '../src/rust/api/ffi.dart' as ffi;
 
 /// 桌面端服务（窗口管理 + 系统托盘）
 class DesktopService with TrayListener, WindowListener {
@@ -187,6 +189,22 @@ class DesktopService with TrayListener, WindowListener {
   Future<void> _quitApp() async {
     try {
       AppLogger.d('DesktopService: Cleaning up before exit...');
+
+      // 同步引擎清理（WCF 模式下必须调用，同步释放占位符、注销 sync root）
+      try {
+        await SyncService.instance.stop();
+        AppLogger.d('DesktopService: Sync engine stopped');
+      } catch (e) {
+        AppLogger.e('DesktopService: Error stopping sync: $e');
+      }
+
+      // 进程退出前同步清理（确保 WCF 资源释放，不依赖 tokio runtime）
+      try {
+        await ffi.syncShutdown();
+        AppLogger.d('DesktopService: Sync shutdown complete');
+      } catch (e) {
+        AppLogger.e('DesktopService: Error in sync shutdown: $e');
+      }
 
       // 彻底解绑
       windowManager.removeListener(this);

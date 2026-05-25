@@ -2,16 +2,19 @@ import 'package:cloudreve4_flutter/presentation/providers/auth_provider.dart';
 import 'package:cloudreve4_flutter/presentation/providers/download_manager_provider.dart';
 import 'package:cloudreve4_flutter/presentation/providers/file_manager_provider.dart';
 import 'package:cloudreve4_flutter/presentation/providers/navigation_provider.dart';
+import 'package:cloudreve4_flutter/presentation/providers/sync_provider.dart';
 import 'package:cloudreve4_flutter/presentation/providers/upload_manager_provider.dart';
 import 'package:cloudreve4_flutter/presentation/widgets/gesture_handler_mixin.dart';
 import 'package:cloudreve4_flutter/presentation/widgets/glassmorphism_container.dart';
 import 'package:cloudreve4_flutter/presentation/widgets/user_avatar.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 import 'package:provider/provider.dart';
 import '../../../router/app_router.dart';
 import '../files/files_page.dart';
 import '../overview/overview_page.dart';
+import '../sync/sync_page.dart';
 import '../tasks/tasks_page.dart';
 import '../store/store_page.dart';
 import '../profile/profile_page.dart';
@@ -44,8 +47,33 @@ class AppShell extends StatefulWidget {
   State<AppShell> createState() => _AppShellState();
 }
 
-class _AppShellState extends State<AppShell> with GestureHandlerMixin {
+class _AppShellState extends State<AppShell> with GestureHandlerMixin, TickerProviderStateMixin {
   final Set<int> _visitedPageIndexes = <int>{0};
+  late AnimationController _syncSpinController;
+
+  /// 同步 tab 仅在桌面平台显示，Android 入口在"我的"页面
+  bool get _showSyncTab => defaultTargetPlatform != TargetPlatform.android && defaultTargetPlatform != TargetPlatform.iOS;
+
+  /// 根据平台返回页面列表（控制 IndexedStack 和 index 映射）
+  List<Widget> get _pages => _showSyncTab
+      ? [const OverviewPage(), const FilesPage(), const TasksPage(), const StorePage(), const SyncPage(), const ProfilePage()]
+      : [const OverviewPage(), const FilesPage(), const TasksPage(), const StorePage(), const ProfilePage()];
+
+  @override
+  void initState() {
+    super.initState();
+    _syncSpinController = AnimationController(
+      vsync: this,
+      duration: const Duration(seconds: 2),
+    );
+  }
+
+  @override
+  void dispose() {
+    _syncSpinController.dispose();
+    super.dispose();
+  }
+
   @override
   Widget build(BuildContext context) {
     final screenWidth = MediaQuery.of(context).size.width;
@@ -80,35 +108,55 @@ class _AppShellState extends State<AppShell> with GestureHandlerMixin {
 
   Widget _buildPageContent(BuildContext context, int currentIndex) {
     _visitedPageIndexes.add(currentIndex);
+    final pages = _pages;
 
     return RepaintBoundary(
       child: IndexedStack(
         index: currentIndex,
-        children: List.generate(5, (index) {
+        children: List.generate(pages.length, (index) {
           if (!_visitedPageIndexes.contains(index)) {
             return const SizedBox.shrink();
           }
-          return _ShellPageSlot(child: _pageForIndex(index));
+          return _ShellPageSlot(child: pages[index]);
         }),
       ),
     );
   }
 
-  Widget _pageForIndex(int index) {
-    switch (index) {
-      case 0:
-        return const OverviewPage();
-      case 1:
-        return const FilesPage();
-      case 2:
-        return const TasksPage();
-      case 3:
-        return const StorePage();
-      case 4:
-        return const ProfilePage();
-      default:
-        return const OverviewPage();
-    }
+  Widget _buildSyncIcon({required bool isSelected, required double size}) {
+    return Consumer<SyncProvider>(
+      builder: (context, sync, _) {
+        final hasWorkers = sync.activeWorkerCount > 0;
+
+        // 只在状态切换时启停动画，避免每次 rebuild 重启造成抖动
+        if (hasWorkers && !_syncSpinController.isAnimating) {
+          _syncSpinController.repeat();
+        } else if (!hasWorkers && _syncSpinController.isAnimating) {
+          _syncSpinController.stop();
+          _syncSpinController.value = 0;
+        }
+
+        final icon = Icon(
+          LucideIcons.refreshCw,
+          size: size,
+          weight: isSelected ? 700 : 400,
+        );
+
+        if (hasWorkers) {
+          return ListenableBuilder(
+            listenable: _syncSpinController,
+            builder: (context, child) {
+              return Transform.rotate(
+                angle: _syncSpinController.value * 2 * 3.14159265,
+                child: child,
+              );
+            },
+            child: icon,
+          );
+        }
+        return icon;
+      },
+    );
   }
 
   Widget _buildMobileLayout(BuildContext context, NavigationProvider navProvider) {
@@ -154,6 +202,30 @@ class _AppShellState extends State<AppShell> with GestureHandlerMixin {
                   selectedIcon: Icon(Icons.storefront),
                   label: '商店',
                 ),
+                if (_showSyncTab)
+                  NavigationDestination(
+                    icon: Consumer<SyncProvider>(
+                      builder: (context, sync, _) {
+                        final count = sync.activeWorkerCount;
+                        return Badge(
+                          isLabelVisible: count > 0,
+                          label: Text('$count'),
+                          child: _buildSyncIcon(isSelected: false, size: 24),
+                        );
+                      },
+                    ),
+                    selectedIcon: Consumer<SyncProvider>(
+                      builder: (context, sync, _) {
+                        final count = sync.activeWorkerCount;
+                        return Badge(
+                          isLabelVisible: count > 0,
+                          label: Text('$count'),
+                          child: _buildSyncIcon(isSelected: true, size: 24),
+                        );
+                      },
+                    ),
+                    label: '同步',
+                  ),
                 const NavigationDestination(
                   icon: Icon(LucideIcons.user),
                   selectedIcon: Icon(LucideIcons.user, weight: 700),
@@ -182,11 +254,11 @@ class _AppShellState extends State<AppShell> with GestureHandlerMixin {
             leading: Padding(
               padding: const EdgeInsets.symmetric(vertical: 16),
               child: GestureDetector(
-                onTap: () => navProvider.setIndex(4),
+                onTap: () => navProvider.setIndex(_pages.length - 1),
                 child: Container(
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
-                    border: navProvider.currentIndex == 4
+                    border: navProvider.currentIndex == _pages.length - 1
                         ? Border.all(
                             color: theme.colorScheme.primary,
                             width: 2.5,
@@ -232,6 +304,30 @@ class _AppShellState extends State<AppShell> with GestureHandlerMixin {
                 selectedIcon: Icon(Icons.storefront),
                 label: Text('商店'),
               ),
+              if (_showSyncTab)
+                NavigationRailDestination(
+                  icon: Consumer<SyncProvider>(
+                    builder: (context, sync, _) {
+                      final count = sync.activeWorkerCount;
+                      return Badge(
+                        isLabelVisible: count > 0,
+                        label: Text('$count'),
+                        child: _buildSyncIcon(isSelected: false, size: 24),
+                      );
+                    },
+                  ),
+                  selectedIcon: Consumer<SyncProvider>(
+                    builder: (context, sync, _) {
+                      final count = sync.activeWorkerCount;
+                      return Badge(
+                        isLabelVisible: count > 0,
+                        label: Text('$count'),
+                        child: _buildSyncIcon(isSelected: true, size: 24),
+                      );
+                    },
+                  ),
+                  label: const Text('同步'),
+                ),
               const NavigationRailDestination(
                 icon: Icon(LucideIcons.user),
                 selectedIcon: Icon(LucideIcons.user, weight: 700),

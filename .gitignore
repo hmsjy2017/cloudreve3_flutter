@@ -7,7 +7,7 @@
 .atom/
 .build/
 .buildlog/
-.history
+.history/
 .svn/
 .swiftpm/
 migrate_working_dir/
@@ -24,10 +24,13 @@ migrate_working_dir/
 CLAUDE.md
 claude_project.md
 PROJECT_REQUIREMENTS.md
+SYNC_ENGINE_DESIGN.md
 DESIGN_OVERVIEW.md
 DESIGN.md
 refactory.md
 DESIGN-copy.md
+todo.md
+feat-2315.md
 *.txt
 *.json
 *.jsonl
@@ -35,6 +38,9 @@ example.dart
 install.sh
 android/app/key.properties
 dist/
+native/target
+native/logs
+sync_refactory.md
 tools/*
 *.diff
 

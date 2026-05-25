@@ -1,0 +1,29 @@
+[package]
+name = "sync-windows"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["lib"]
+
+[dependencies]
+windows = { version = "0.58", features = [
+    "Win32_Foundation",
+    "Win32_Storage_CloudFilters",
+    "Win32_Storage_FileSystem",
+    "Win32_System_Registry",
+    "Win32_System_CorrelationVector",
+    "Win32_System_IO",
+] }
+thiserror = { workspace = true }
+tracing = "0.1"
+anyhow = { workspace = true }
+tokio = { workspace = true }
+async-trait = "0.1"
+serde = { workspace = true }
+serde_json = { workspace = true }
+uuid = { workspace = true }
+
+[features]
+default = ["cfapi"]
+cfapi = []

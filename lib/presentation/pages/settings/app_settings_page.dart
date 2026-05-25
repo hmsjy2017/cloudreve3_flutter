@@ -2,6 +2,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 import 'package:open_file/open_file.dart';
+import 'package:logger/logger.dart' show Level;
 import 'package:provider/provider.dart';
 import '../../../core/constants/storage_keys.dart';
 import '../../../core/utils/app_logger.dart';
@@ -38,6 +39,7 @@ class _AppSettingsPageState extends State<AppSettingsPage> {
   String _logFilePath = '';
   int? _logFileSize;
   String _cacheDirPath = '';
+  Level _logLevel = Level.info;
 
   @override
   void initState() {
@@ -46,6 +48,7 @@ class _AppSettingsPageState extends State<AppSettingsPage> {
     _loadWifiOnlySetting();
     _loadGravatarMirrorSetting();
     _loadLogInfo();
+    _loadLogLevel();
   }
 
   Future<void> _loadCacheSettings() async {
@@ -123,6 +126,15 @@ class _AppSettingsPageState extends State<AppSettingsPage> {
       setState(() {
         _gravatarMirrorEnabled = enabled;
         _gravatarMirrorUrl = url;
+      });
+    }
+  }
+
+  Future<void> _loadLogLevel() async {
+    final saved = await StorageService.instance.getString(StorageKeys.logLevel);
+    if (saved != null && mounted) {
+      setState(() {
+        _logLevel = _parseLogLevel(saved);
       });
     }
   }
@@ -295,6 +307,13 @@ class _AppSettingsPageState extends State<AppSettingsPage> {
                 _buildSection(
                   title: '日志管理',
                   children: [
+                    ListTile(
+                      leading: const Icon(Icons.tune),
+                      title: const Text('日志级别'),
+                      subtitle: Text(_logLevelLabel(_logLevel)),
+                      trailing: const Icon(Icons.chevron_right),
+                      onTap: () => _pickLogLevel(),
+                    ),
                     ListTile(
                       title: const Text('日志文件路径'),
                       subtitle: Text(
@@ -881,6 +900,72 @@ class _AppSettingsPageState extends State<AppSettingsPage> {
       await AppLogger.clearLog();
       await _loadLogInfo();
       if (mounted) ToastHelper.success('日志已清空');
+    }
+  }
+
+  String _logLevelLabel(Level level) {
+    return switch (level) {
+      Level.error => 'Error — 仅错误',
+      Level.warning => 'Warning — 错误 + 警告',
+      Level.info => 'Info — 常规信息',
+      Level.debug => 'Debug — 调试信息（含FFI交互）',
+      Level.trace => 'Trace — 全量追踪',
+      _ => level.name,
+    };
+  }
+
+  Level _parseLogLevel(String level) {
+    return switch (level) {
+      'error' => Level.error,
+      'warning' => Level.warning,
+      'info' => Level.info,
+      'debug' => Level.debug,
+      'trace' => Level.trace,
+      _ => Level.info,
+    };
+  }
+
+  Future<void> _pickLogLevel() async {
+    final levels = [
+      (Level.error, 'Error — 仅错误'),
+      (Level.warning, 'Warning — 错误 + 警告'),
+      (Level.info, 'Info — 常规信息'),
+      (Level.debug, 'Debug — 调试信息（含FFI交互）'),
+      (Level.trace, 'Trace — 全量追踪'),
+    ];
+
+    final result = await showDialog<Level>(
+      context: context,
+      builder: (ctx) => SimpleDialog(
+        title: const Text('日志级别'),
+        children: levels.map((e) {
+          final isSelected = _logLevel == e.$1;
+          return SimpleDialogOption(
+            onPressed: () => Navigator.pop(ctx, e.$1),
+            child: Row(
+              children: [
+                Icon(
+                  isSelected ? Icons.radio_button_checked : Icons.radio_button_unchecked,
+                  size: 20,
+                  color: isSelected ? Theme.of(ctx).colorScheme.primary : Theme.of(ctx).hintColor,
+                ),
+                const SizedBox(width: 8),
+                Text(e.$2),
+              ],
+            ),
+          );
+        }).toList(),
+      ),
+    );
+
+    if (result != null && result != _logLevel) {
+      setState(() => _logLevel = result);
+      AppLogger.setLevel(result);
+      await StorageService.instance.setString(
+        StorageKeys.logLevel,
+        result.name,
+      );
+      if (mounted) ToastHelper.success('日志级别已切换为 ${_logLevelLabel(result)}');
     }
   }
 }

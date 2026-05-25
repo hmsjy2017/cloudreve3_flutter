@@ -105,9 +105,9 @@ class _WideStorageAndShortcuts extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return RepaintBoundary(
+    return IntrinsicHeight(
       child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: const [
           Expanded(flex: 5, child: StorageUsageCard()),
           SizedBox(width: 16),

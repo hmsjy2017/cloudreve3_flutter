@@ -1,27 +1,36 @@
+import 'package:cloudreve4_flutter/presentation/providers/navigation_provider.dart';
 import 'package:cloudreve4_flutter/router/app_router.dart';
 import 'package:flutter/material.dart';
 import 'package:lucide_icons/lucide_icons.dart';
+import 'package:provider/provider.dart';
 
 class _QuickFunction {
   final IconData icon;
   final String label;
-  final String route;
+  final String? route;
+  final void Function(BuildContext context)? onTap;
 
   const _QuickFunction({
     required this.icon,
     required this.label,
-    required this.route,
+    this.route,
+    this.onTap,
   });
 }
 
 class QuickFunctionsSection extends StatelessWidget {
   const QuickFunctionsSection({super.key});
 
-  static const _functions = [
+  static final _functions = [
     _QuickFunction(icon: LucideIcons.share2, label: '我的分享', route: RouteNames.share),
     _QuickFunction(icon: LucideIcons.cloud, label: 'WebDAV', route: RouteNames.webdav),
     _QuickFunction(icon: LucideIcons.download, label: '离线下载', route: RouteNames.remoteDownload),
     _QuickFunction(icon: LucideIcons.trash2, label: '回收站', route: RouteNames.recycleBin),
+    _QuickFunction(
+      icon: LucideIcons.refreshCw,
+      label: '文件同步',
+      onTap: (ctx) => ctx.read<NavigationProvider>().setIndex(4),
+    ),
     _QuickFunction(icon: LucideIcons.settings, label: '设置', route: RouteNames.settings),
   ];
 
@@ -70,7 +79,13 @@ class QuickFunctionsSection extends StatelessWidget {
                   child: _QuickFunctionCard(
                     icon: fn.icon,
                     label: fn.label,
-                    onTap: () => Navigator.of(context).pushNamed(fn.route),
+                    onTap: () {
+                      if (fn.onTap != null) {
+                        fn.onTap!(context);
+                      } else if (fn.route != null) {
+                        Navigator.of(context).pushNamed(fn.route!);
+                      }
+                    },
                   ),
                 );
               }).toList(),

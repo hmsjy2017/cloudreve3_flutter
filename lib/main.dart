@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:ui';
 import 'package:cloudreve4_flutter/core/utils/app_logger.dart';
+import 'package:logger/logger.dart' show Level;
 import 'package:cloudreve4_flutter/presentation/widgets/desktop_title_bar.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -11,6 +12,8 @@ import 'package:media_kit/media_kit.dart';
 import 'package:oktoast/oktoast.dart';
 import 'package:window_manager/window_manager.dart';
 import 'config/app_config.dart';
+import 'core/constants/storage_keys.dart';
+import 'services/storage_service.dart';
 import 'presentation/providers/auth_provider.dart';
 import 'presentation/providers/file_manager_provider.dart';
 import 'presentation/providers/navigation_provider.dart';
@@ -19,6 +22,7 @@ import 'presentation/providers/download_manager_provider.dart';
 import 'presentation/providers/user_setting_provider.dart';
 import 'presentation/providers/admin_provider.dart';
 import 'presentation/providers/quick_access_provider.dart';
+import 'presentation/providers/sync_provider.dart';
 import 'presentation/providers/theme_provider.dart';
 import 'services/upload_service.dart';
 import 'services/upload_foreground_service.dart';
@@ -32,12 +36,44 @@ import 'core/utils/video_fullscreen.dart';
 import 'services/desktop_service.dart';
 import 'router/app_router.dart';
 import 'presentation/widgets/toast_helper.dart';
+import 'src/rust/frb_generated.dart' show RustSyncApi;
 
 final RouteObserver<PageRoute> routeObserver = RouteObserver<PageRoute>();
 
+Level _parseLogLevel(String level) {
+  return switch (level) {
+    'error' => Level.error,
+    'warning' => Level.warning,
+    'info' => Level.info,
+    'debug' => Level.debug,
+    'trace' => Level.trace,
+    _ => Level.info,
+  };
+}
+
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // 初始化日志（必须最先，否则后续任何 AppLogger 调用都会触发 fallback Logger 导致文件输出失效）
+  await AppLogger.init();
+  // 从持久化恢复日志级别
+  final savedLevel = await StorageService.instance.getString(StorageKeys.logLevel);
+  if (savedLevel != null) {
+    final level = _parseLogLevel(savedLevel);
+    AppLogger.setLevel(level);
+  }
+  AppLogger.i("应用启动，日志系统就绪");
+
   UploadForegroundService.initCommunicationPort();
+
+  // 初始化 Flutter Rust Bridge
+  try {
+    await RustSyncApi.init();
+    AppLogger.i("RustSyncApi 初始化成功");
+  } catch (e) {
+    AppLogger.e("RustSyncApi 初始化失败: $e");
+    // 初始化失败不阻塞应用启动，同步功能将不可用
+  }
 
   // 捕获 flutter_cache_manager 在 Windows 上删除缓存文件时的文件占用异常
   // 该异常是后台异步抛出的，无法通过 try-catch 拦截，需绑定错误处理器静默忽略
@@ -54,10 +90,6 @@ void main() async {
     }
     return false;
   };
-
-  // 初始化日志
-  await AppLogger.init();
-  AppLogger.i("应用启动，日志系统就绪");
 
   // 桌面端初始化窗口管理和系统托盘
   if (Platform.isWindows || Platform.isLinux) {
@@ -164,6 +196,7 @@ class CloudreveApp extends StatelessWidget {
             ChangeNotifierProvider(create: (_) => UserSettingProvider()),
             ChangeNotifierProvider(create: (_) => AdminProvider()),
             ChangeNotifierProvider(create: (_) => QuickAccessProvider()..load()),
+            ChangeNotifierProvider(create: (_) => SyncProvider()),
           ],
           child: const AppView(),
         );

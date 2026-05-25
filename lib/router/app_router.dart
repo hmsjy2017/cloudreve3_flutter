@@ -8,6 +8,7 @@ import '../presentation/pages/webdav/webdav_page.dart';
 import '../presentation/pages/remote_download/remote_download_page.dart';
 import '../presentation/pages/settings/settings_page.dart';
 import '../presentation/pages/profile/account_switcher_page.dart';
+import '../presentation/pages/sync/sync_settings_page.dart';
 import '../presentation/pages/preview/image_preview_page.dart';
 import '../presentation/pages/preview/pdf_preview_page.dart';
 import '../presentation/pages/preview/video_preview_page.dart';
@@ -37,6 +38,7 @@ class RouteNames {
   static const String documentPreview = '/document-preview';
   static const String markdownPreview = '/markdown-preview';
   static const String categoryFiles = '/category-files';
+  static const String syncSettings = '/sync-settings';
 }
 
 /// 应用路由
@@ -199,7 +201,6 @@ class AppRouter {
           builder: (context) => MarkdownPreviewPage(file: file),
         );
 
-
       case RouteNames.categoryFiles:
         final args = settings.arguments;
         if (args is CategoryFilesPageArgs) {
@@ -226,6 +227,12 @@ class AppRouter {
               color: Color(0xFFF0ABFC),
             ),
           ),
+        );
+
+      case RouteNames.syncSettings:
+        return MaterialPageRoute(
+          settings: settings,
+          builder: (context) => const SyncSettingsPage(),
         );
 
       default:

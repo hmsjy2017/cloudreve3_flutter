@@ -18,6 +18,7 @@ function build_linux_release() {
     # 3. 创建临时目录结构
     if [ -d "$PKG_DIR" ]; then
       echo "目录已存在，清楚旧的debian构建产物 $PKG_DIR"
+      rm -rf "$PKG_DIR"
     fi
 
     echo "正在创建目录结构..."
