@@ -1,4 +1,4 @@
-use crate::errors::Result;
+use crate::errors::{Result, SyncError};
 use crate::fs_scanner::FsScanner;
 use crate::models::*;
 use std::time::Instant;
@@ -6,14 +6,18 @@ use std::time::Instant;
 use super::SyncEngine;
 
 impl SyncEngine {
-    /// 初始全量同步
+    /// 初始全量同步（受 sync_lock 保护，同一时间只允许一个同步操作）
     pub async fn run_initial_sync(&self) -> Result<SyncSummary> {
-        let start = Instant::now();
+        // 获取互斥锁：如果旧同步还在运行，等待其退出（旧同步的 token 已被取消，worker 会快速退出）
+        let _guard = self.sync_lock.lock().await;
 
-        // 重置 shutdown token，确保可重新启动
-        let new_token = tokio_util::sync::CancellationToken::new();
-        *self.shutdown_token.lock().unwrap() = new_token.clone();
-        self.worker_pool.update_shutdown_token(new_token);
+        // 检查是否已被取消
+        if self.shutdown_token.lock().unwrap().is_cancelled() {
+            tracing::info!("初始同步已取消，跳过");
+            return Err(SyncError::Internal("同步已被取消".into()));
+        }
+
+        let start = Instant::now();
 
         *self.state.write().await = SyncState::Initializing;
 
@@ -25,12 +29,22 @@ impl SyncEngine {
 
         let scanner = FsScanner::new();
         tracing::info!("开始扫描本地文件系统: {}", local_root.display());
-        let local_files = scanner.scan(&local_root, 50, false).await?;
+        // MirrorWcf 模式跳过 hash 计算（占位符 size=0 被 diff 跳过，水合文件 hash 在需要时再算）
+        let compute_hash = !matches!(sync_mode, SyncMode::MirrorWcf);
+        let local_files = scanner.scan(&local_root, 50, false, compute_hash).await?;
         tracing::info!("本地扫描完成: {} 个条目", local_files.len());
+
+        if self.shutdown_token.lock().unwrap().is_cancelled() {
+            return Err(SyncError::Internal("同步已被取消".into()));
+        }
 
         tracing::info!("开始扫描远程文件树: {}", remote_root);
         let remote_files = self.api.list_all_files(&remote_root).await?;
         tracing::info!("远程扫描完成: {} 个条目", remote_files.len());
+
+        if self.shutdown_token.lock().unwrap().is_cancelled() {
+            return Err(SyncError::Internal("同步已被取消".into()));
+        }
 
         let db_mappings = self.load_all_mappings().await?;
         let plan = crate::diff::compute_diff(&local_files, &remote_files, &db_mappings, &remote_root, &sync_mode);
@@ -42,6 +56,10 @@ impl SyncEngine {
             plan.delete_remote.len(),
             plan.conflicts.len(),
         );
+
+        if self.shutdown_token.lock().unwrap().is_cancelled() {
+            return Err(SyncError::Internal("同步已被取消".into()));
+        }
 
         *self.state.write().await = SyncState::InitialSync {
             progress: InitialSyncProgress {
@@ -55,34 +73,52 @@ impl SyncEngine {
         let worker_config = self.snapshot_worker_config().await;
         let conflict_resolver = self.conflict.read().await.clone();
 
-        // MirrorWcf 模式：初始化 WCF 平台适配器
+        // MirrorWcf 模式：初始化 WCF 平台适配器（仅首次，重复初始化会触发 CFApi 重新水合）
         #[cfg(feature = "windows-cfapi")]
         if matches!(sync_mode, SyncMode::MirrorWcf) {
-            let config = self.config.read().await;
-            let adapter = crate::platform::wcf::WcfPlatformAdapter::new(
-                self.db.clone(),
-                self.api.clone(),
-                config.clone(),
-            ).map_err(|e| crate::errors::SyncError::Internal(e.to_string()))?;
-            let fetch_rx = adapter.take_fetch_receiver();
-            *self.wcf_fetch_rx.lock().unwrap() = fetch_rx;
-            let adapter_arc = std::sync::Arc::new(adapter);
-            *self.platform_adapter.lock().unwrap() = Some(adapter_arc.clone());
-            self.worker_pool.set_platform_adapter(adapter_arc);
-            *self.cached_local_root.lock().unwrap() = config.local_root.clone();
-            tracing::info!("MirrorWcf: WCF 平台适配器已初始化");
+            let already_initialized = self.platform_adapter.lock().unwrap().is_some();
+            if !already_initialized {
+                let config = self.config.read().await;
+                let adapter = crate::platform::wcf::WcfPlatformAdapter::new(
+                    self.db.clone(),
+                    self.api.clone(),
+                    config.clone(),
+                ).map_err(|e| crate::errors::SyncError::Internal(e.to_string()))?;
+                let fetch_rx = adapter.take_fetch_receiver();
+                *self.wcf_fetch_rx.lock().unwrap() = fetch_rx;
+                let adapter_arc = std::sync::Arc::new(adapter);
+                *self.platform_adapter.lock().unwrap() = Some(adapter_arc.clone());
+                self.worker_pool.set_platform_adapter(adapter_arc);
+                *self.cached_local_root.lock().unwrap() = config.local_root.clone();
+                tracing::info!("MirrorWcf: WCF 平台适配器已初始化");
+            } else {
+                tracing::info!("MirrorWcf: WCF 平台适配器已存在，跳过重复初始化");
+            }
         }
 
-        let summary = self.worker_pool.submit(
+        let result = self.worker_pool.submit(
             plan, worker_config, WorkerTrigger::InitialSync, conflict_resolver,
-        ).await?;
+        ).await;
 
-        *self.state.write().await = SyncState::Continuous;
-        tracing::info!("初始同步完成, 耗时 {}ms", start.elapsed().as_millis());
-
-        Ok(SyncSummary {
-            duration_ms: start.elapsed().as_millis() as u64,
-            ..summary
-        })
+        match result {
+            Ok(summary) => {
+                *self.state.write().await = SyncState::Continuous;
+                tracing::info!("初始同步完成, 耗时 {}ms", start.elapsed().as_millis());
+                Ok(SyncSummary {
+                    duration_ms: start.elapsed().as_millis() as u64,
+                    ..summary
+                })
+            }
+            Err(e) => {
+                // 被取消时不需要设 Error 状态
+                if self.shutdown_token.lock().unwrap().is_cancelled() {
+                    tracing::info!("初始同步已取消");
+                    Err(SyncError::Internal("同步已被取消".into()))
+                } else {
+                    Err(e)
+                }
+            }
+        }
+        // _guard 在此处 drop，释放 sync_lock
     }
 }

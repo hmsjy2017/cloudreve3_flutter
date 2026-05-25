@@ -966,8 +966,8 @@ class RustSyncApiApiImpl extends RustSyncApiApiImplPlatform
   SyncConfigFfi dco_decode_sync_config_ffi(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     final arr = raw as List<dynamic>;
-    if (arr.length != 14)
-      throw Exception('unexpected arr length: expect 14 but see ${arr.length}');
+    if (arr.length != 15)
+      throw Exception('unexpected arr length: expect 15 but see ${arr.length}');
     return SyncConfigFfi(
       baseUrl: dco_decode_String(arr[0]),
       accessToken: dco_decode_String(arr[1]),
@@ -976,13 +976,14 @@ class RustSyncApiApiImpl extends RustSyncApiApiImplPlatform
       remoteRoot: dco_decode_String(arr[4]),
       syncMode: dco_decode_String(arr[5]),
       conflictStrategy: dco_decode_String(arr[6]),
-      maxConcurrentTransfers: dco_decode_u_32(arr[7]),
-      bandwidthLimitKbps: dco_decode_u_64(arr[8]),
-      excludedPaths: dco_decode_list_String(arr[9]),
-      maxWorkers: dco_decode_u_32(arr[10]),
-      dataDir: dco_decode_String(arr[11]),
-      clientId: dco_decode_String(arr[12]),
-      logLevel: dco_decode_String(arr[13]),
+      wcfDeleteMode: dco_decode_String(arr[7]),
+      maxConcurrentTransfers: dco_decode_u_32(arr[8]),
+      bandwidthLimitKbps: dco_decode_u_64(arr[9]),
+      excludedPaths: dco_decode_list_String(arr[10]),
+      maxWorkers: dco_decode_u_32(arr[11]),
+      dataDir: dco_decode_String(arr[12]),
+      clientId: dco_decode_String(arr[13]),
+      logLevel: dco_decode_String(arr[14]),
     );
   }
 
@@ -1346,6 +1347,7 @@ class RustSyncApiApiImpl extends RustSyncApiApiImplPlatform
     var var_remoteRoot = sse_decode_String(deserializer);
     var var_syncMode = sse_decode_String(deserializer);
     var var_conflictStrategy = sse_decode_String(deserializer);
+    var var_wcfDeleteMode = sse_decode_String(deserializer);
     var var_maxConcurrentTransfers = sse_decode_u_32(deserializer);
     var var_bandwidthLimitKbps = sse_decode_u_64(deserializer);
     var var_excludedPaths = sse_decode_list_String(deserializer);
@@ -1361,6 +1363,7 @@ class RustSyncApiApiImpl extends RustSyncApiApiImplPlatform
       remoteRoot: var_remoteRoot,
       syncMode: var_syncMode,
       conflictStrategy: var_conflictStrategy,
+      wcfDeleteMode: var_wcfDeleteMode,
       maxConcurrentTransfers: var_maxConcurrentTransfers,
       bandwidthLimitKbps: var_bandwidthLimitKbps,
       excludedPaths: var_excludedPaths,
@@ -1809,6 +1812,7 @@ class RustSyncApiApiImpl extends RustSyncApiApiImplPlatform
     sse_encode_String(self.remoteRoot, serializer);
     sse_encode_String(self.syncMode, serializer);
     sse_encode_String(self.conflictStrategy, serializer);
+    sse_encode_String(self.wcfDeleteMode, serializer);
     sse_encode_u_32(self.maxConcurrentTransfers, serializer);
     sse_encode_u_64(self.bandwidthLimitKbps, serializer);
     sse_encode_list_String(self.excludedPaths, serializer);

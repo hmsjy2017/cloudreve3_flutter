@@ -30,7 +30,7 @@ fn error_to_ffi(e: crate::errors::SyncError) -> SyncErrorFfi {
 }
 
 fn config_from_ffi(ffi: SyncConfigFfi) -> crate::models::SyncConfig {
-    use crate::models::{ConflictStrategy, SyncMode};
+    use crate::models::{ConflictStrategy, SyncMode, WcfDeleteMode};
     use std::path::PathBuf;
 
     let sync_mode = match ffi.sync_mode.as_str() {
@@ -50,6 +50,11 @@ fn config_from_ffi(ffi: SyncConfigFfi) -> crate::models::SyncConfig {
         _ => ConflictStrategy::KeepBoth,
     };
 
+    let wcf_delete_mode = match ffi.wcf_delete_mode.as_str() {
+        "wcf_delete_sync_remote" => WcfDeleteMode::SyncRemote,
+        _ => WcfDeleteMode::LocalOnly,
+    };
+
     let bandwidth_limit = if ffi.bandwidth_limit_kbps > 0 {
         Some(ffi.bandwidth_limit_kbps * 1024)
     } else {
@@ -64,6 +69,7 @@ fn config_from_ffi(ffi: SyncConfigFfi) -> crate::models::SyncConfig {
         remote_root: ffi.remote_root,
         sync_mode,
         conflict_strategy,
+        wcf_delete_mode,
         max_concurrent_transfers: ffi.max_concurrent_transfers as usize,
         bandwidth_limit,
         excluded_paths: ffi.excluded_paths,
@@ -74,7 +80,7 @@ fn config_from_ffi(ffi: SyncConfigFfi) -> crate::models::SyncConfig {
 }
 
 fn config_to_ffi(c: &crate::models::SyncConfig) -> SyncConfigFfi {
-    use crate::models::{ConflictStrategy, SyncMode};
+    use crate::models::{ConflictStrategy, SyncMode, WcfDeleteMode};
 
     let sync_mode = match c.sync_mode {
         SyncMode::Full => "full",
@@ -93,6 +99,11 @@ fn config_to_ffi(c: &crate::models::SyncConfig) -> SyncConfigFfi {
         ConflictStrategy::Manual => "manual",
     };
 
+    let wcf_delete_mode = match c.wcf_delete_mode {
+        WcfDeleteMode::LocalOnly => "wcf_delete_local_only",
+        WcfDeleteMode::SyncRemote => "wcf_delete_sync_remote",
+    };
+
     SyncConfigFfi {
         base_url: c.base_url.clone(),
         access_token: c.access_token.clone(),
@@ -101,6 +112,7 @@ fn config_to_ffi(c: &crate::models::SyncConfig) -> SyncConfigFfi {
         remote_root: c.remote_root.clone(),
         sync_mode: sync_mode.to_string(),
         conflict_strategy: conflict_strategy.to_string(),
+        wcf_delete_mode: wcf_delete_mode.to_string(),
         max_concurrent_transfers: c.max_concurrent_transfers as u32,
         bandwidth_limit_kbps: c.bandwidth_limit.map(|b| b / 1024).unwrap_or(0),
         excluded_paths: c.excluded_paths.clone(),
@@ -191,8 +203,8 @@ fn apply_log_level(level: &str) {
 /// 初始化同步引擎
 #[frb]
 pub async fn init_sync_engine(config: SyncConfigFfi) -> Result<(), SyncErrorFfi> {
-    eprintln!("[FFI] init_sync_engine ← mode={}, conflict={}, concurrent={}, bandwidth={}kbps, log_level={}",
-        config.sync_mode, config.conflict_strategy, config.max_concurrent_transfers,
+    eprintln!("[FFI] init_sync_engine ← mode={}, conflict={}, wcf_delete={}, concurrent={}, bandwidth={}kbps, log_level={}",
+        config.sync_mode, config.conflict_strategy, config.wcf_delete_mode, config.max_concurrent_transfers,
         config.bandwidth_limit_kbps, config.log_level);
 
     // 确保本地同步目录存在
@@ -298,6 +310,12 @@ pub async fn dispose_sync_engine() -> Result<(), SyncErrorFfi> {
     tracing::debug!("[FFI] dispose_sync_engine ←");
     let engine = get_engine()?;
     engine.stop().await.map_err(error_to_ffi)?;
+
+    #[cfg(feature = "windows-cfapi")]
+    {
+        engine.cleanup_wcf();
+    }
+
     tracing::info!("同步引擎已停止");
     Ok(())
 }
@@ -326,6 +344,7 @@ pub fn sync_shutdown() -> Result<(), SyncErrorFfi> {
 pub async fn start_initial_sync() -> Result<SyncSummaryFfi, SyncErrorFfi> {
     tracing::debug!("[FFI] start_initial_sync ←");
     let engine = get_engine()?;
+    engine.ensure_token_fresh();
     engine.run_initial_sync().await
         .map(|s| {
             tracing::debug!("[FFI] start_initial_sync → uploaded={}, downloaded={}, conflicts={}, failed={}",
@@ -428,8 +447,8 @@ pub async fn get_sync_config() -> Result<SyncConfigFfi, SyncErrorFfi> {
 /// 更新同步配置
 #[frb]
 pub async fn update_sync_config(config: SyncConfigFfi) -> Result<(), SyncErrorFfi> {
-    tracing::debug!("[FFI] update_sync_config ← mode={}, conflict={}, concurrent={}, bandwidth={}kbps",
-        config.sync_mode, config.conflict_strategy, config.max_concurrent_transfers, config.bandwidth_limit_kbps);
+    tracing::debug!("[FFI] update_sync_config ← mode={}, conflict={}, wcf_delete={}, concurrent={}, bandwidth={}kbps",
+        config.sync_mode, config.conflict_strategy, config.wcf_delete_mode, config.max_concurrent_transfers, config.bandwidth_limit_kbps);
     let engine = get_engine()?;
     engine.update_config(config_from_ffi(config)).await.map_err(error_to_ffi)
 }

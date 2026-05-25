@@ -51,6 +51,7 @@ class SyncConfigFfi {
   final String remoteRoot;
   final String syncMode;
   final String conflictStrategy;
+  final String wcfDeleteMode;
   final int maxConcurrentTransfers;
   final BigInt bandwidthLimitKbps;
   final List<String> excludedPaths;
@@ -67,6 +68,7 @@ class SyncConfigFfi {
     required this.remoteRoot,
     required this.syncMode,
     required this.conflictStrategy,
+    required this.wcfDeleteMode,
     required this.maxConcurrentTransfers,
     required this.bandwidthLimitKbps,
     required this.excludedPaths,
@@ -85,6 +87,7 @@ class SyncConfigFfi {
       remoteRoot.hashCode ^
       syncMode.hashCode ^
       conflictStrategy.hashCode ^
+      wcfDeleteMode.hashCode ^
       maxConcurrentTransfers.hashCode ^
       bandwidthLimitKbps.hashCode ^
       excludedPaths.hashCode ^
@@ -105,6 +108,7 @@ class SyncConfigFfi {
           remoteRoot == other.remoteRoot &&
           syncMode == other.syncMode &&
           conflictStrategy == other.conflictStrategy &&
+          wcfDeleteMode == other.wcfDeleteMode &&
           maxConcurrentTransfers == other.maxConcurrentTransfers &&
           bandwidthLimitKbps == other.bandwidthLimitKbps &&
           excludedPaths == other.excludedPaths &&

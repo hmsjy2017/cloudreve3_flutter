@@ -381,7 +381,8 @@ impl Worker {
                 tracing::warn!("[{}] 目录不存在，跳过: {}", tid, dir_path.display());
                 continue;
             }
-            match scanner.scan(&dir_path, 50, false).await {
+            let compute_hash = !matches!(self.config.sync_mode, SyncMode::MirrorWcf);
+            match scanner.scan(&dir_path, 50, false, compute_hash).await {
                 Ok(entries) => {
                     for entry in entries {
                         if !entry.is_dir && entry.size == 0 {
@@ -1207,9 +1208,12 @@ impl Worker {
         }
     }
 
-    /// 7. 删除远程文件（Full 和 MirrorWcf）
+    /// 7. 删除远程文件（Full 始终删除；MirrorWcf 仅在 WcfDeleteMode::SyncRemote 时删除）
     async fn step_delete_remote(&self, summary: &mut SyncSummary) {
-        if !matches!(self.config.sync_mode, SyncMode::Full | SyncMode::MirrorWcf) {
+        let should_delete = matches!(self.config.sync_mode, SyncMode::Full)
+            || (matches!(self.config.sync_mode, SyncMode::MirrorWcf)
+                && matches!(self.config.wcf_delete_mode, WcfDeleteMode::SyncRemote));
+        if !should_delete {
             return;
         }
         let tid = &self.task_id;

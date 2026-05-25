@@ -6,6 +6,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:open_file/open_file.dart';
 
 import '../../../core/constants/sync_defaults.dart';
+import '../../../core/utils/app_logger.dart';
 import '../../../data/models/sync_config_model.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/sync_provider.dart';
@@ -27,6 +28,7 @@ class _SyncSettingsPageState extends State<SyncSettingsPage> {
   String _remoteRoot = SyncDefaults.defaultRemoteRoot;
   String _syncMode = 'full';
   String _conflictStrategy = 'keep_both';
+  String _wcfDeleteMode = 'wcf_delete_local_only';
   int _maxConcurrent = 3;
   int _bandwidthLimitKbps = 0;
   int _maxWorkers = SyncDefaults.defaultMaxWorkers;
@@ -41,6 +43,8 @@ class _SyncSettingsPageState extends State<SyncSettingsPage> {
       text: SyncDefaults.defaultLocalRoot(),
     );
 
+    AppLogger.i('默认同步目录: ${_localRootController.text}');
+
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final sync = context.read<SyncProvider>();
       final config = sync.persistedConfig;
@@ -50,6 +54,7 @@ class _SyncSettingsPageState extends State<SyncSettingsPage> {
           _remoteRoot = config.remoteRoot;
           _syncMode = config.syncMode;
           _conflictStrategy = config.conflictStrategy;
+          _wcfDeleteMode = config.wcfDeleteMode;
           _maxConcurrent = config.maxConcurrentTransfers;
           _bandwidthLimitKbps = config.bandwidthLimitKbps;
           _maxWorkers = config.maxWorkers;
@@ -178,6 +183,21 @@ class _SyncSettingsPageState extends State<SyncSettingsPage> {
                           : Text(_conflictStrategyLabel(_conflictStrategy)),
                       trailing: const Icon(Icons.chevron_right),
                       onTap: (sync.isActive || sync.isPaused) ? null : () => _pickConflictStrategy(),
+                    ),
+                  ],
+                ),
+              if (_syncMode == 'mirror_wcf')
+                _buildSection(
+                  title: '镜像删除模式',
+                  children: [
+                    ListTile(
+                      leading: const Icon(Icons.delete_outline),
+                      title: const Text('本地删除行为'),
+                      subtitle: (sync.isActive || sync.isPaused)
+                          ? const Text('同步运行中，无法修改')
+                          : Text(_wcfDeleteModeLabel(_wcfDeleteMode)),
+                      trailing: const Icon(Icons.chevron_right),
+                      onTap: (sync.isActive || sync.isPaused) ? null : () => _pickWcfDeleteMode(),
                     ),
                   ],
                 ),
@@ -417,7 +437,7 @@ class _SyncSettingsPageState extends State<SyncSettingsPage> {
             '• 占位符不占用磁盘空间，但在资源管理器中可见\n'
             '• 打开文件时自动从云端下载（水合）\n'
             '• 本地修改会同步回远程\n'
-            '• 本地删除同时会删除远程副本\n'
+            '• 默认仅删除本地，保留远程副本以便重新水合\n'
             '• 可手动将文件恢复为占位符（脱水）以释放空间\n\n'
             '适用于远程文件较多但本地磁盘空间有限的场景。',
       );
@@ -568,6 +588,14 @@ class _SyncSettingsPageState extends State<SyncSettingsPage> {
     };
   }
 
+  String _wcfDeleteModeLabel(String mode) {
+    return switch (mode) {
+      'wcf_delete_local_only' => '仅删除本地（可重新水合）',
+      'wcf_delete_sync_remote' => '同步删除远程',
+      _ => mode,
+    };
+  }
+
   Widget _buildSection({
     required String title,
     required List<Widget> children,
@@ -674,6 +702,44 @@ class _SyncSettingsPageState extends State<SyncSettingsPage> {
 
     if (result != null) {
       setState(() => _conflictStrategy = result);
+      _pushConfig();
+    }
+  }
+
+  Future<void> _pickWcfDeleteMode() async {
+    final modes = [
+      ('wcf_delete_local_only', '仅删除本地（可重新水合）'),
+      ('wcf_delete_sync_remote', '同步删除远程'),
+    ];
+
+    final result = await showDialog<String>(
+      context: context,
+      builder: (ctx) => SimpleDialog(
+        title: const Text('镜像删除模式'),
+        children: modes
+            .map(
+              (e) => SimpleDialogOption(
+                onPressed: () => Navigator.pop(ctx, e.$1),
+                child: Row(
+                  children: [
+                    Icon(
+                      e.$1 == _wcfDeleteMode
+                          ? Icons.radio_button_checked
+                          : Icons.radio_button_unchecked,
+                      size: 20,
+                    ),
+                    const SizedBox(width: 8),
+                    Text(e.$2),
+                  ],
+                ),
+              ),
+            )
+            .toList(),
+      ),
+    );
+
+    if (result != null) {
+      setState(() => _wcfDeleteMode = result);
       _pushConfig();
     }
   }
@@ -807,6 +873,7 @@ class _SyncSettingsPageState extends State<SyncSettingsPage> {
     final updated = config.copyWith(
       syncMode: _syncMode,
       conflictStrategy: _conflictStrategy,
+      wcfDeleteMode: _wcfDeleteMode,
       maxConcurrentTransfers: _maxConcurrent,
       bandwidthLimitKbps: _bandwidthLimitKbps,
       maxWorkers: _maxWorkers,
@@ -833,6 +900,7 @@ class _SyncSettingsPageState extends State<SyncSettingsPage> {
       remoteRoot: _remoteRoot,
       syncMode: _syncMode,
       conflictStrategy: _conflictStrategy,
+      wcfDeleteMode: _wcfDeleteMode,
       maxConcurrentTransfers: _maxConcurrent,
       bandwidthLimitKbps: _bandwidthLimitKbps,
       maxWorkers: _maxWorkers,
@@ -982,7 +1050,7 @@ class _SyncSettingsPageState extends State<SyncSettingsPage> {
 
     if (result != null && result != _logLevel) {
       setState(() => _logLevel = result);
-
+      if (!mounted) return;
       // 热修改：立即通知 Rust 引擎
       final sync = context.read<SyncProvider>();
       await sync.setLogLevel(result);

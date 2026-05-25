@@ -44,6 +44,8 @@ pub struct SyncEngine {
     conflict: RwLock<ConflictResolver>,
     sync_root_id: Option<String>,
     shutdown_token: std::sync::Mutex<CancellationToken>,
+    /// 同步操作互斥锁：防止 force_sync / run_initial_sync 并发
+    sync_lock: tokio::sync::Mutex<()>,
     worker_pool: WorkerPool,
     #[allow(dead_code)]
     file_locks: Arc<FileLockRegistry>,
@@ -111,6 +113,7 @@ impl SyncEngine {
             conflict: RwLock::new(conflict),
             sync_root_id,
             shutdown_token: std::sync::Mutex::new(shutdown_token),
+            sync_lock: tokio::sync::Mutex::new(()),
             worker_pool,
             file_locks,
             ensured_dirs,
@@ -135,19 +138,25 @@ impl SyncEngine {
             max_concurrent_transfers: config.max_concurrent_transfers,
             bandwidth_limit: config.bandwidth_limit,
             conflict_strategy: config.conflict_strategy.clone(),
+            wcf_delete_mode: config.wcf_delete_mode.clone(),
             sync_root_id: self.sync_root_id.clone().unwrap_or_default(),
             sync_mode: config.sync_mode.clone(),
         }
     }
 
+    /// 确保 shutdown token 未被取消（stop 后重新启动时使用）
+    pub fn ensure_token_fresh(&self) {
+        let token = self.shutdown_token.lock().unwrap().clone();
+        if token.is_cancelled() {
+            let new_token = tokio_util::sync::CancellationToken::new();
+            self.worker_pool.update_shutdown_token(new_token.clone());
+            *self.shutdown_token.lock().unwrap() = new_token;
+        }
+    }
+
     pub async fn stop(&self) -> Result<()> {
         self.shutdown_token.lock().unwrap().cancel();
-
-        #[cfg(feature = "windows-cfapi")]
-        {
-            self.cleanup_wcf();
-        }
-
+        *self.state.write().await = SyncState::Stopped;
         Ok(())
     }
 
@@ -162,6 +171,15 @@ impl SyncEngine {
     }
 
     pub async fn force_sync(&self) -> Result<SyncSummary> {
+        // 取消当前所有操作（持续同步 + 正在运行的初始同步）
+        self.shutdown_token.lock().unwrap().cancel();
+
+        // 创建新 token，供接下来的 run_initial_sync 使用
+        let new_token = tokio_util::sync::CancellationToken::new();
+        *self.shutdown_token.lock().unwrap() = new_token.clone();
+        self.worker_pool.update_shutdown_token(new_token);
+
+        // run_initial_sync 会等待 sync_lock（旧同步的 worker 检测到取消后快速退出，释放锁）
         self.run_initial_sync().await
     }
 
@@ -169,8 +187,16 @@ impl SyncEngine {
     pub async fn reset_sync(&self) -> Result<()> {
         tracing::info!("开始重置同步...");
 
-        // 1. 停止同步（含 WCF 清理）
+        // 1. 停止同步
         self.stop().await?;
+
+        // 2. 清理 WCF（重置时需要彻底清理）
+        #[cfg(feature = "windows-cfapi")]
+        {
+            self.cleanup_wcf();
+        }
+
+        // 3. 终止所有活跃 Worker
 
         // 2. 终止所有活跃 Worker
         self.worker_pool.abort_all_workers().await;
@@ -252,6 +278,7 @@ impl SyncEngine {
 
         let new_bandwidth = new_config.bandwidth_limit;
         let new_conflict = format!("{:?}", new_config.conflict_strategy);
+        let new_wcf_delete = format!("{:?}", new_config.wcf_delete_mode);
         let new_mode = format!("{:?}", new_config.sync_mode);
         let new_max_concurrent = new_config.max_concurrent_transfers;
         *self.config.write().await = new_config;
@@ -260,8 +287,8 @@ impl SyncEngine {
             tracing::info!("仅对下载限速生效, 由于Cloudreve实现原因, 上传限速无法生效");
         }
         tracing::info!(
-            "同步配置已更新: 模式={}, 冲突策略={}, 并发={}, 带宽限制={:?}",
-            new_mode, new_conflict, new_max_concurrent, new_bandwidth
+            "同步配置已更新: 模式={}, 冲突策略={}, WCF删除={}, 并发={}, 带宽限制={:?}",
+            new_mode, new_conflict, new_wcf_delete, new_max_concurrent, new_bandwidth
         );
         Ok(())
     }

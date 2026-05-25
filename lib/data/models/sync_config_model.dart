@@ -8,6 +8,7 @@ class SyncConfigModel {
   final String remoteRoot;
   final String syncMode;
   final String conflictStrategy;
+  final String wcfDeleteMode;
   final int maxConcurrentTransfers;
   final int bandwidthLimitKbps;
   final List<String> excludedPaths;
@@ -26,6 +27,7 @@ class SyncConfigModel {
     this.remoteRoot = 'cloudreve://my',
     this.syncMode = 'full',
     this.conflictStrategy = 'keep_both',
+    this.wcfDeleteMode = 'wcf_delete_local_only',
     this.maxConcurrentTransfers = 3,
     this.bandwidthLimitKbps = 0,
     this.excludedPaths = const [],
@@ -41,6 +43,7 @@ class SyncConfigModel {
     String? remoteRoot,
     String? syncMode,
     String? conflictStrategy,
+    String? wcfDeleteMode,
     int? maxConcurrentTransfers,
     int? bandwidthLimitKbps,
     List<String>? excludedPaths,
@@ -57,6 +60,7 @@ class SyncConfigModel {
       remoteRoot: remoteRoot ?? this.remoteRoot,
       syncMode: syncMode ?? this.syncMode,
       conflictStrategy: conflictStrategy ?? this.conflictStrategy,
+      wcfDeleteMode: wcfDeleteMode ?? this.wcfDeleteMode,
       maxConcurrentTransfers:
           maxConcurrentTransfers ?? this.maxConcurrentTransfers,
       bandwidthLimitKbps: bandwidthLimitKbps ?? this.bandwidthLimitKbps,
@@ -77,6 +81,7 @@ class SyncConfigModel {
       remoteRoot: remoteRoot,
       syncMode: syncMode,
       conflictStrategy: conflictStrategy,
+      wcfDeleteMode: wcfDeleteMode,
       maxConcurrentTransfers: maxConcurrentTransfers,
       bandwidthLimitKbps: BigInt.from(bandwidthLimitKbps),
       excludedPaths: excludedPaths,
@@ -96,6 +101,7 @@ class SyncConfigModel {
       remoteRoot: ffi.remoteRoot,
       syncMode: ffi.syncMode,
       conflictStrategy: ffi.conflictStrategy,
+      wcfDeleteMode: ffi.wcfDeleteMode,
       maxConcurrentTransfers: ffi.maxConcurrentTransfers,
       bandwidthLimitKbps: ffi.bandwidthLimitKbps.toInt(),
       excludedPaths: ffi.excludedPaths,

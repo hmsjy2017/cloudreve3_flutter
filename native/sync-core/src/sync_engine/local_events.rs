@@ -12,9 +12,9 @@ impl SyncEngine {
         debounce: &mut crate::event_handler::EventDebouncer,
     ) {
         // DownloadOnly: 忽略所有本地事件
-        let sync_mode = {
+        let (sync_mode, wcf_delete_mode) = {
             let config = self.config.read().await;
-            config.sync_mode.clone()
+            (config.sync_mode.clone(), config.wcf_delete_mode.clone())
         };
         if matches!(sync_mode, SyncMode::DownloadOnly) {
             return;
@@ -144,7 +144,8 @@ impl SyncEngine {
         debounce.cleanup();
 
         // === hash 匹配回退：检测 delete+create 为 rename 的情况 ===
-        if !delete_paths.is_empty() && !create_paths.is_empty() {
+        // MirrorWcf: 跳过 hash 匹配回退，因为读取占位符文件会被 CFApi 拦截导致 426 超时
+        if !delete_paths.is_empty() && !create_paths.is_empty() && !matches!(sync_mode, SyncMode::MirrorWcf) {
             let mut matched_deletes: std::collections::HashSet<String> = std::collections::HashSet::new();
             let mut matched_creates: std::collections::HashSet<String> = std::collections::HashSet::new();
 
@@ -260,11 +261,16 @@ impl SyncEngine {
                     }
 
                     let size = metadata.len();
-                    let quick_hash = crate::utils::quick_hash(path, size).await.unwrap_or_default();
+                    // MirrorWcf: 跳过 quick_hash，因为读取占位符文件会被 CFApi 拦截导致 426 超时
+                    let quick_hash = if matches!(sync_mode, SyncMode::MirrorWcf) {
+                        String::new()
+                    } else {
+                        crate::utils::quick_hash(path, size).await.unwrap_or_default()
+                    };
 
                     let db_mapping = self.db.get_file_mapping(&root_id, relative).await.ok().flatten();
                     if let Some(ref mapping) = db_mapping {
-                        if mapping.local_hash.as_deref() == Some(&quick_hash) {
+                        if !quick_hash.is_empty() && mapping.local_hash.as_deref() == Some(&quick_hash) {
                             continue;
                         }
                         if mapping.is_placeholder {
@@ -348,8 +354,12 @@ impl SyncEngine {
             }
         }
 
-        // === 提交删除远程任务 (本地删除 → 删除远程，仅 Full 和 MirrorWcf 模式) ===
-        if !delete_paths.is_empty() && matches!(sync_mode, SyncMode::Full | SyncMode::MirrorWcf) {
+        // === 提交删除远程任务 (本地删除 → 删除远程) ===
+        // Full 模式：始终同步删除远程
+        // MirrorWcf 模式：仅在 wcf_delete_mode == SyncRemote 时删除远程，否则仅删除本地（保留远程以便重新水合）
+        let wcf_should_delete_remote = matches!(sync_mode, SyncMode::MirrorWcf)
+            && matches!(wcf_delete_mode, WcfDeleteMode::SyncRemote);
+        if !delete_paths.is_empty() && (matches!(sync_mode, SyncMode::Full) || wcf_should_delete_remote) {
             let mut delete_remote: Vec<SyncAction> = Vec::new();
             for relative in &delete_paths {
                 tracing::info!("检测到本地文件删除: {}", relative);

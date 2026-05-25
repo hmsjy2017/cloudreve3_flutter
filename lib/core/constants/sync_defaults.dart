@@ -9,7 +9,7 @@ class SyncDefaults {
       return '${Platform.environment['USERPROFILE']}\\Documents\\Cloudreve4';
     } else if (Platform.isLinux) {
       final xdgDownload =
-          Platform.environment['XDG_DOWNLOAD_DIR'] ?? '~/Downloads';
+          Platform.environment['XDG_DOWNLOAD_DIR'] ?? ("${Platform.environment['HOME'] ?? ''}/Downloads");
       return '$xdgDownload/Cloudreve4';
     } else if (Platform.isAndroid) {
       return ''; // Android 使用系统相册目录

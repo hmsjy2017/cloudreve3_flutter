@@ -19,6 +19,7 @@ pub struct SyncConfigFfi {
     pub remote_root: String,
     pub sync_mode: String,
     pub conflict_strategy: String,
+    pub wcf_delete_mode: String,
     pub max_concurrent_transfers: u32,
     pub bandwidth_limit_kbps: u64,
     pub excluded_paths: Vec<String>,

@@ -91,6 +91,7 @@ class SyncProvider extends ChangeNotifier {
           remoteRoot: configMap['remoteRoot'] as String? ?? 'cloudreve://my',
           syncMode: configMap['syncMode'] as String? ?? 'full',
           conflictStrategy: configMap['conflictStrategy'] as String? ?? 'keep_both',
+          wcfDeleteMode: configMap['wcfDeleteMode'] as String? ?? 'wcf_delete_local_only',
           maxConcurrentTransfers: configMap['maxConcurrentTransfers'] as int? ?? 3,
           bandwidthLimitKbps: configMap['bandwidthLimitKbps'] as int? ?? 0,
           maxWorkers: configMap['maxWorkers'] as int? ?? 0,
@@ -121,6 +122,7 @@ class SyncProvider extends ChangeNotifier {
       'remoteRoot': config.remoteRoot,
       'syncMode': config.syncMode,
       'conflictStrategy': config.conflictStrategy,
+      'wcfDeleteMode': config.wcfDeleteMode,
       'maxConcurrentTransfers': config.maxConcurrentTransfers,
       'bandwidthLimitKbps': config.bandwidthLimitKbps,
       'maxWorkers': config.maxWorkers,
@@ -590,6 +592,8 @@ class SyncProvider extends ChangeNotifier {
       _lastSummary = summary;
       _state = SyncState.continuous;
       await _persistState(SyncState.continuous);
+      // 重新启动持续同步
+      SyncService.instance.startContinuousSync();
     } catch (e) {
       _state = SyncState.error;
       _errorMessage = e.toString();

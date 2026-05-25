@@ -1070,6 +1070,7 @@ impl SseDecode for crate::api::ffi_types::SyncConfigFfi {
         let mut var_remoteRoot = <String>::sse_decode(deserializer);
         let mut var_syncMode = <String>::sse_decode(deserializer);
         let mut var_conflictStrategy = <String>::sse_decode(deserializer);
+        let mut var_wcfDeleteMode = <String>::sse_decode(deserializer);
         let mut var_maxConcurrentTransfers = <u32>::sse_decode(deserializer);
         let mut var_bandwidthLimitKbps = <u64>::sse_decode(deserializer);
         let mut var_excludedPaths = <Vec<String>>::sse_decode(deserializer);
@@ -1085,6 +1086,7 @@ impl SseDecode for crate::api::ffi_types::SyncConfigFfi {
             remote_root: var_remoteRoot,
             sync_mode: var_syncMode,
             conflict_strategy: var_conflictStrategy,
+            wcf_delete_mode: var_wcfDeleteMode,
             max_concurrent_transfers: var_maxConcurrentTransfers,
             bandwidth_limit_kbps: var_bandwidthLimitKbps,
             excluded_paths: var_excludedPaths,
@@ -1514,6 +1516,7 @@ impl flutter_rust_bridge::IntoDart for crate::api::ffi_types::SyncConfigFfi {
             self.remote_root.into_into_dart().into_dart(),
             self.sync_mode.into_into_dart().into_dart(),
             self.conflict_strategy.into_into_dart().into_dart(),
+            self.wcf_delete_mode.into_into_dart().into_dart(),
             self.max_concurrent_transfers.into_into_dart().into_dart(),
             self.bandwidth_limit_kbps.into_into_dart().into_dart(),
             self.excluded_paths.into_into_dart().into_dart(),
@@ -1954,6 +1957,7 @@ impl SseEncode for crate::api::ffi_types::SyncConfigFfi {
         <String>::sse_encode(self.remote_root, serializer);
         <String>::sse_encode(self.sync_mode, serializer);
         <String>::sse_encode(self.conflict_strategy, serializer);
+        <String>::sse_encode(self.wcf_delete_mode, serializer);
         <u32>::sse_encode(self.max_concurrent_transfers, serializer);
         <u64>::sse_encode(self.bandwidth_limit_kbps, serializer);
         <Vec<String>>::sse_encode(self.excluded_paths, serializer);

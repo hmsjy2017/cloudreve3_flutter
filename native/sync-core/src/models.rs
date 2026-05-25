@@ -35,6 +35,7 @@ pub struct SyncConfig {
     pub remote_root: String,
     pub sync_mode: SyncMode,
     pub conflict_strategy: ConflictStrategy,
+    pub wcf_delete_mode: WcfDeleteMode,
     pub max_concurrent_transfers: usize,
     pub bandwidth_limit: Option<u64>,
     pub excluded_paths: Vec<String>,
@@ -123,6 +124,15 @@ pub enum ConflictStrategy {
     NewestWins,
     LargestWins,
     Manual,
+}
+
+/// 镜像同步(WCF)本地删除模式 — 仅 MirrorWcf 模式下生效
+#[derive(Debug, Clone, PartialEq)]
+pub enum WcfDeleteMode {
+    /// 仅删除本地，保留远程（可重新水合）
+    LocalOnly,
+    /// 同步删除远程副本
+    SyncRemote,
 }
 
 #[derive(Debug, Clone)]
@@ -389,6 +399,7 @@ pub struct WorkerConfig {
     pub max_concurrent_transfers: usize,
     pub bandwidth_limit: Option<u64>,
     pub conflict_strategy: ConflictStrategy,
+    pub wcf_delete_mode: WcfDeleteMode,
     pub sync_root_id: String,
     pub sync_mode: SyncMode,
 }

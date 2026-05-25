@@ -1,3 +1,5 @@
+#[cfg(unix)]
+use std::collections::HashSet;
 use crate::errors::Result;
 use crate::models::LocalFileEntry;
 use crate::utils::quick_hash;
@@ -31,11 +33,13 @@ impl FsScanner {
     }
 
     /// 递归扫描本地目录
+    /// `compute_hash`: 是否计算文件 quick_hash（MirrorWcf 模式下可跳过以加速扫描）
     pub async fn scan(
         &self,
         root: &Path,
         depth_limit: u32,
         follow_symlinks: bool,
+        compute_hash: bool,
     ) -> Result<Vec<LocalFileEntry>> {
         let mut entries = Vec::new();
         #[cfg(unix)]
@@ -122,7 +126,11 @@ impl FsScanner {
                     .map(|d| d.as_millis() as i64)
                     .unwrap_or(0);
 
-                let hash = quick_hash(entry.path(), size).await.unwrap_or_default();
+                let hash = if compute_hash {
+                    quick_hash(entry.path(), size).await.unwrap_or_default()
+                } else {
+                    String::new()
+                };
                 let mime_type = guess_mime_type(entry.path());
 
                 entries.push(LocalFileEntry {
