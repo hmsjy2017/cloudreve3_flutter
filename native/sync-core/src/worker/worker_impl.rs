@@ -37,6 +37,8 @@ pub struct Worker {
     ensured_dirs: Arc<DashMap<String, ()>>,
     conflict_resolver: ConflictResolver,
     event_sink: Arc<crate::event_sink::EventSink>,
+    /// 抑制路径：上传失败清理远端碎片时，防止 SSE 删除事件误删本地文件
+    suppress_paths: Arc<DashMap<String, std::time::Instant>>,
     shutdown_token: CancellationToken,
     #[cfg(feature = "windows-cfapi")]
     platform_adapter: Option<Arc<dyn PlaceholderCreator>>,
@@ -55,6 +57,7 @@ impl Worker {
         ensured_dirs: Arc<DashMap<String, ()>>,
         conflict_resolver: ConflictResolver,
         event_sink: Arc<crate::event_sink::EventSink>,
+        suppress_paths: Arc<DashMap<String, std::time::Instant>>,
         shutdown_token: CancellationToken,
         #[cfg(feature = "windows-cfapi")] platform_adapter: Option<Arc<dyn PlaceholderCreator>>,
     ) -> Self {
@@ -69,6 +72,7 @@ impl Worker {
             ensured_dirs,
             conflict_resolver,
             event_sink,
+            suppress_paths,
             shutdown_token,
             #[cfg(feature = "windows-cfapi")]
             platform_adapter,
@@ -783,6 +787,8 @@ impl Worker {
                             Some(&e.to_string()),
                         )
                         .await;
+                    // 清理远端碎片：强制解锁 + 删除
+                    self.cleanup_failed_upload(&rel_path).await;
                 }
                 Err(e) => {
                     tracing::error!("[{}] 上传任务异常: {}: {}", tid, rel_path, e);
@@ -798,6 +804,8 @@ impl Worker {
                             Some(&e.to_string()),
                         )
                         .await;
+                    // 清理远端碎片：强制解锁 + 删除
+                    self.cleanup_failed_upload(&rel_path).await;
                 }
             }
         }
@@ -1208,7 +1216,22 @@ impl Worker {
         }
     }
 
-    /// 7. 删除远程文件（Full 始终删除；MirrorWcf 仅在 WcfDeleteMode::SyncRemote 时删除）
+    // 上传失败后清理远端碎片：删除远端可能已创建的部分文件
+    // delete_files 内部遇到锁冲突(40073)会自动解锁后重试
+    // 删除前先插入 suppress_paths，防止 SSE 删除事件误删本地文件
+    async fn cleanup_failed_upload(&self, relative_path: &str) {
+        let remote_uri = format!("{}/{}", self.config.remote_root, relative_path);
+        let tid = &self.task_id;
+
+        // 先标记抑制，30s 内 SSE 删除事件不会删本地文件
+        self.suppress_paths.insert(relative_path.to_string(), std::time::Instant::now());
+
+        match self.api.delete_files(&[&remote_uri]).await {
+            Ok(_) => tracing::info!("[{}] 上传失败清理-已删除远端碎片: {}", tid, remote_uri),
+            Err(e) => tracing::debug!("[{}] 上传失败清理-删除失败（可能不存在）: {}", tid, e),
+        }
+    }
+
     async fn step_delete_remote(&self, summary: &mut SyncSummary) {
         let should_delete = matches!(self.config.sync_mode, SyncMode::Full)
             || (matches!(self.config.sync_mode, SyncMode::MirrorWcf)

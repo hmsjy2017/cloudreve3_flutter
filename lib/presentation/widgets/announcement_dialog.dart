@@ -1,7 +1,12 @@
 import 'dart:convert';
+import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:webview_flutter/webview_flutter.dart';
+import 'package:flutter_inappwebview/flutter_inappwebview.dart';
+import 'package:webview_flutter/webview_flutter.dart' as mobile;
+
+bool get _isDesktop => !kIsWeb && (Platform.isWindows || Platform.isLinux);
 
 class AnnouncementDialog extends StatefulWidget {
   final String title;
@@ -39,23 +44,27 @@ class AnnouncementDialog extends StatefulWidget {
 }
 
 class _AnnouncementDialogState extends State<AnnouncementDialog> {
-  late final WebViewController _controller;
+  mobile.WebViewController? _mobileController;
+  InAppWebViewController? _desktopController;
+  Key _desktopKey = UniqueKey();
   bool _loading = true;
 
   @override
   void initState() {
     super.initState();
 
-    _controller = WebViewController()
-      ..setJavaScriptMode(JavaScriptMode.unrestricted)
-      ..setBackgroundColor(Colors.transparent)
-      ..setNavigationDelegate(
-        NavigationDelegate(
-          onPageFinished: (_) {
-            if (mounted) setState(() => _loading = false);
-          },
-        ),
-      );
+    if (!_isDesktop) {
+      _mobileController = mobile.WebViewController()
+        ..setJavaScriptMode(mobile.JavaScriptMode.unrestricted)
+        ..setBackgroundColor(Colors.transparent)
+        ..setNavigationDelegate(
+          mobile.NavigationDelegate(
+            onPageFinished: (_) {
+              if (mounted) setState(() => _loading = false);
+            },
+          ),
+        );
+    }
 
     _load();
   }
@@ -64,10 +73,11 @@ class _AnnouncementDialogState extends State<AnnouncementDialog> {
     final origin = Uri.parse(widget.baseUrl).origin;
     final html = _wrapHtml(widget.html);
 
-    await _controller.loadHtmlString(
-      html,
-      baseUrl: '$origin/',
-    );
+    if (!_isDesktop && _mobileController != null) {
+      await _mobileController!.loadHtmlString(html, baseUrl: '$origin/');
+    } else if (_isDesktop) {
+      setState(() => _desktopKey = UniqueKey());
+    }
   }
 
   String _wrapHtml(String body) {
@@ -117,6 +127,41 @@ $body
 ''';
   }
 
+  Widget _buildDesktopWebView() {
+    final origin = Uri.parse(widget.baseUrl).origin;
+    final html = _wrapHtml(widget.html);
+
+    return InAppWebView(
+      key: _desktopKey,
+      initialSettings: InAppWebViewSettings(
+        javaScriptEnabled: true,
+        transparentBackground: true,
+        supportZoom: false,
+      ),
+      onWebViewCreated: (controller) {
+        _desktopController = controller;
+        controller.loadData(
+          data: html,
+          mimeType: 'text/html',
+          encoding: 'utf-8',
+          baseUrl: WebUri('$origin/'),
+        );
+      },
+      onLoadStop: (controller, url) {
+        if (mounted) setState(() => _loading = false);
+      },
+      onReceivedError: (controller, request, error) {
+        if (mounted) setState(() => _loading = false);
+      },
+    );
+  }
+
+  @override
+  void dispose() {
+    _desktopController?.dispose();
+    super.dispose();
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -162,7 +207,9 @@ $body
               Expanded(
                 child: Stack(
                   children: [
-                    WebViewWidget(controller: _controller),
+                    _isDesktop
+                        ? _buildDesktopWebView()
+                        : mobile.WebViewWidget(controller: _mobileController!),
                     if (_loading)
                       const Center(child: CircularProgressIndicator()),
                   ],

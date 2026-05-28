@@ -1,3 +1,4 @@
+use std::error::Error as StdError;
 use thiserror::Error;
 
 #[derive(Error, Debug)]
@@ -13,6 +14,18 @@ pub enum SyncError {
 
     #[error("远程文件已存在")]
     ObjectExisted,
+
+    #[error("存储策略不允许: {0}")]
+    StoragePolicyDenied(String),
+
+    #[error("上传失败: {0}")]
+    UploadFailed(String),
+
+    #[error("文件未找到: {0}")]
+    FileNotFound(String),
+
+    #[error("权限不足: {0}")]
+    PermissionDenied(String),
 
     #[error("文件锁定冲突")]
     LockConflict { tokens: Vec<LockConflictItem> },
@@ -56,7 +69,39 @@ impl From<r2d2::Error> for SyncError {
 
 impl From<reqwest::Error> for SyncError {
     fn from(e: reqwest::Error) -> Self {
-        SyncError::Network(e.to_string())
+        let mut detail = String::new();
+        if e.is_connect() {
+            detail.push_str("连接失败");
+        } else if e.is_timeout() {
+            detail.push_str("请求超时");
+        } else if e.is_request() {
+            detail.push_str("请求构建失败");
+        } else if e.is_body() {
+            detail.push_str("请求体错误");
+        } else if e.is_decode() {
+            detail.push_str("响应解码失败");
+        } else if e.is_redirect() {
+            detail.push_str("重定向过多");
+        }
+        let url = e.url().map(|u| u.to_string()).unwrap_or_default();
+        let source = StdError::source(&e)
+            .map(|s| format!(": {s}"))
+            .unwrap_or_default();
+        let msg = e.to_string();
+        // 如果 detail 为空，用 reqwest 原始消息
+        if detail.is_empty() {
+            SyncError::Network(if url.is_empty() {
+                format!("{msg}{source}")
+            } else {
+                format!("{msg} [{url}]{source}")
+            })
+        } else {
+            SyncError::Network(if url.is_empty() {
+                format!("{detail}: {msg}{source}")
+            } else {
+                format!("{detail}: {msg} [{url}]{source}")
+            })
+        }
     }
 }
 

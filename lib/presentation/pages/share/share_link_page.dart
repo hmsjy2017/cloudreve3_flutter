@@ -1,11 +1,14 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
-import 'package:webview_flutter/webview_flutter.dart';
+import 'package:webview_flutter/webview_flutter.dart' as mobile;
 
 import '../../../core/utils/app_logger.dart';
 import '../../../services/api_service.dart';
@@ -13,6 +16,8 @@ import '../../../services/share_link_service.dart';
 import '../../providers/download_manager_provider.dart';
 import '../../widgets/folder_picker.dart';
 import '../../widgets/user_avatar.dart';
+
+bool get _isDesktop => !kIsWeb && (Platform.isWindows || Platform.isLinux);
 
 class ShareLinkPage extends StatefulWidget {
   final ShareLinkCandidate candidate;
@@ -332,51 +337,14 @@ class _ShareLinkPageState extends State<ShareLinkPage> {
     if (shareUri == null) return null;
 
     final completer = Completer<String?>();
-    late final WebViewController controller;
     BuildContext? dialogContext;
     Timer? timeoutTimer;
+    InAppWebViewController? desktopCtrl;
 
     void complete(String? url) {
       if (completer.isCompleted) return;
       completer.complete(url);
     }
-
-    controller = WebViewController()
-      ..setJavaScriptMode(JavaScriptMode.unrestricted)
-      ..addJavaScriptChannel(
-        'CloudreveDownloadBridge',
-        onMessageReceived: (message) {
-          final url = _extractOfficialDownloadUrl(
-            message.message,
-            shareUri: shareUri,
-          );
-          if (url != null && url.isNotEmpty) {
-            complete(url);
-          }
-        },
-      )
-      ..setNavigationDelegate(
-        NavigationDelegate(
-          onPageFinished: (_) async {
-            await _installOfficialDownloadHook(controller);
-          },
-          onNavigationRequest: (request) {
-            final url = request.url;
-            if (_looksLikeDirectDownloadUrl(url, shareUri: shareUri)) {
-              complete(url);
-              return NavigationDecision.prevent;
-            }
-            return NavigationDecision.navigate;
-          },
-          onUrlChange: (change) {
-            final url = change.url;
-            if (url != null && _looksLikeDirectDownloadUrl(url, shareUri: shareUri)) {
-              complete(url);
-            }
-          },
-        ),
-      )
-      ..loadRequest(shareUri);
 
     timeoutTimer = Timer(const Duration(seconds: 24), () => complete(null));
 
@@ -387,6 +355,108 @@ class _ShareLinkPageState extends State<ShareLinkPage> {
         Navigator.of(ctx, rootNavigator: true).pop(url);
       }
     });
+
+    Widget webViewWidget;
+
+    if (!_isDesktop) {
+      // ── 移动端：webview_flutter ──
+      late mobile.WebViewController controller;
+      controller = mobile.WebViewController()
+        ..setJavaScriptMode(mobile.JavaScriptMode.unrestricted)
+        ..addJavaScriptChannel(
+          'CloudreveDownloadBridge',
+          onMessageReceived: (message) {
+            final url = _extractOfficialDownloadUrl(
+              message.message,
+              shareUri: shareUri,
+            );
+            if (url != null && url.isNotEmpty) {
+              complete(url);
+            }
+          },
+        )
+        ..setNavigationDelegate(
+          mobile.NavigationDelegate(
+            onPageFinished: (_) async {
+              await _installOfficialDownloadHook(
+                controller.runJavaScript,
+              );
+            },
+            onNavigationRequest: (request) {
+              final url = request.url;
+              if (_looksLikeDirectDownloadUrl(url, shareUri: shareUri)) {
+                complete(url);
+                return mobile.NavigationDecision.prevent;
+              }
+              return mobile.NavigationDecision.navigate;
+            },
+            onUrlChange: (change) {
+              final url = change.url;
+              if (url != null && _looksLikeDirectDownloadUrl(url, shareUri: shareUri)) {
+                complete(url);
+              }
+            },
+          ),
+        )
+        ..loadRequest(shareUri);
+
+      webViewWidget = mobile.WebViewWidget(controller: controller);
+    } else {
+      // ── 桌面端：flutter_inappwebview ──
+      webViewWidget = SizedBox(
+        width: 1,
+        height: 1,
+        child: InAppWebView(
+          initialSettings: InAppWebViewSettings(
+            javaScriptEnabled: true,
+            domStorageEnabled: true,
+            isInspectable: true,
+            cacheMode: CacheMode.LOAD_DEFAULT,
+            supportMultipleWindows: false,
+            useHybridComposition: true,
+          ),
+          onWebViewCreated: (controller) {
+            desktopCtrl = controller;
+            controller.addJavaScriptHandler(
+              handlerName: 'CloudreveDownloadBridge',
+              callback: (args) {
+                final text = args.isNotEmpty ? args[0].toString() : '';
+                final url = _extractOfficialDownloadUrl(
+                  text,
+                  shareUri: shareUri,
+                );
+                if (url != null && url.isNotEmpty) {
+                  complete(url);
+                }
+              },
+            );
+            controller.loadUrl(
+              urlRequest: URLRequest(url: WebUri(shareUri.toString())),
+            );
+          },
+          onLoadStop: (controller, url) async {
+            await _installOfficialDownloadHook(
+              (script) => controller.evaluateJavascript(source: script),
+            );
+          },
+          shouldInterceptRequest: (controller, request) async {
+            final url = request.url.toString();
+            if (_looksLikeDirectDownloadUrl(url, shareUri: shareUri)) {
+              complete(url);
+            }
+            return null;
+          },
+          onLoadStart: (controller, url) {
+            if (url != null && _looksLikeDirectDownloadUrl(url.toString(), shareUri: shareUri)) {
+              complete(url.toString());
+            }
+          },
+          onReceivedError: (controller, request, error) {
+            // 忽略子资源错误
+          },
+        ),
+      );
+    }
 
     final result = await showDialog<String?>(
       context: context,
@@ -417,7 +487,7 @@ class _ShareLinkPageState extends State<ShareLinkPage> {
                 height: 1,
                 child: Opacity(
                   opacity: 0.01,
-                  child: WebViewWidget(controller: controller),
+                  child: webViewWidget,
                 ),
               ),
             ],
@@ -437,10 +507,11 @@ class _ShareLinkPageState extends State<ShareLinkPage> {
     );
 
     timeoutTimer.cancel();
+    desktopCtrl?.dispose();
     return result;
   }
 
-  Future<void> _installOfficialDownloadHook(WebViewController controller) async {
+  Future<void> _installOfficialDownloadHook(Future<void> Function(String) runJS) async {
     const hookScript = r"""
 (function () {
   if (window.__cloudreveAppDownloadHookInstalled) return;
@@ -449,7 +520,11 @@ class _ShareLinkPageState extends State<ShareLinkPage> {
   function post(value) {
     try {
       if (typeof value !== 'string') value = JSON.stringify(value);
-      CloudreveDownloadBridge.postMessage(value);
+      if (typeof CloudreveDownloadBridge !== 'undefined' && CloudreveDownloadBridge.postMessage) {
+        CloudreveDownloadBridge.postMessage(value);
+      } else if (window.flutter_inappwebview && window.flutter_inappwebview.callHandler) {
+        window.flutter_inappwebview.callHandler('CloudreveDownloadBridge', value);
+      }
     } catch (e) {}
   }
 
@@ -572,8 +647,8 @@ class _ShareLinkPageState extends State<ShareLinkPage> {
 """;
 
     try {
-      await controller.runJavaScript(hookScript);
-      await controller.runJavaScript(clickScript);
+      await runJS(hookScript);
+      await runJS(clickScript);
     } catch (_) {
       // 官方页面脚本注入失败时，外层会超时并保留“浏览器打开”。
     }

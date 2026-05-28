@@ -26,6 +26,8 @@ pub struct WorkerPool {
     file_locks: Arc<FileLockRegistry>,
     ensured_dirs: Arc<DashMap<String, ()>>,
     event_sink: Arc<crate::event_sink::EventSink>,
+    /// 抑制路径：上传失败清理远端碎片时，防止 SSE 删除事件误删本地文件
+    suppress_paths: Arc<DashMap<String, std::time::Instant>>,
     shutdown_token: std::sync::Mutex<CancellationToken>,
     #[cfg(feature = "windows-cfapi")]
     platform_adapter: std::sync::Mutex<Option<Arc<dyn PlaceholderCreator>>>,
@@ -67,6 +69,7 @@ impl WorkerPool {
             file_locks,
             ensured_dirs,
             event_sink,
+            suppress_paths: Arc::new(DashMap::new()),
             shutdown_token: std::sync::Mutex::new(shutdown_token),
             #[cfg(feature = "windows-cfapi")]
             platform_adapter: std::sync::Mutex::new(None),
@@ -133,6 +136,7 @@ impl WorkerPool {
             self.ensured_dirs.clone(),
             conflict_resolver,
             self.event_sink.clone(),
+            self.suppress_paths.clone(),
             self.shutdown_token.lock().unwrap().clone(),
             #[cfg(feature = "windows-cfapi")]
             self.platform_adapter.lock().unwrap().clone(),
@@ -232,6 +236,7 @@ impl WorkerPool {
         let file_locks = self.file_locks.clone();
         let ensured_dirs = self.ensured_dirs.clone();
         let event_sink = self.event_sink.clone();
+        let suppress_paths = self.suppress_paths.clone();
         let shutdown_token = self.shutdown_token.lock().unwrap().clone();
         let active_workers = self.active_workers.clone();
         let active_upload_paths = self.active_upload_paths.clone();
@@ -255,6 +260,7 @@ impl WorkerPool {
                 ensured_dirs,
                 conflict_resolver,
                 event_sink,
+                suppress_paths,
                 shutdown_token,
                 #[cfg(feature = "windows-cfapi")]
                 platform_adapter,

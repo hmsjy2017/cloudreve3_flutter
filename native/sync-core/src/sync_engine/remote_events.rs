@@ -78,6 +78,10 @@ impl SyncEngine {
                 }
             }
             RemoteFileEvent::Deleted { uri, name } => {
+                // 清理过期抑制条目
+                let now = std::time::Instant::now();
+                self.suppress_paths.retain(|_, ts| now.duration_since(*ts).as_secs() < 30);
+
                 let relative = crate::diff::remote_relative_path(
                     remote_root,
                     uri,
@@ -85,6 +89,13 @@ impl SyncEngine {
                     false,
                 );
                 tracing::info!("[远程事件] 删除: {}", relative);
+
+                // 被抑制的路径：上传失败清理远端碎片等场景，不应删除本地文件
+                if self.suppress_paths.contains_key(&relative) {
+                    tracing::info!("[远程事件] 删除已抑制，跳过本地删除: {}", relative);
+                    self.suppress_paths.remove(&relative);
+                    return;
+                }
 
                 let local_path = local_root.join(&relative);
                 if local_path.exists() {

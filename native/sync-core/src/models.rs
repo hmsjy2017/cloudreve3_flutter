@@ -283,6 +283,35 @@ pub enum PlatformCallbackEvent {
 pub struct UploadSession {
     pub session_id: String,
     pub chunk_size: u64,
+    /// 远程存储的上传 URL 列表（每个分片一个 URL）
+    /// 仅当 storage_policy_type != "local" 时有值
+    pub upload_urls: Vec<String>,
+    /// 存储策略类型：local / onedrive / s3 / oss / cos / etc.
+    pub storage_policy_type: String,
+    /// 回调密钥（远程存储上传完成后需要回调通知服务端）
+    pub callback_secret: String,
+    /// 上传文件名（仅用于日志标识，并发时区分不同文件）
+    pub file_name: String,
+}
+
+impl UploadSession {
+    /// 是否使用远程存储直接上传（非本地策略）
+    pub fn is_remote_storage(&self) -> bool {
+        self.storage_policy_type != "local" && !self.upload_urls.is_empty()
+    }
+
+    /// 获取第 index 个分片的上传 URL
+    /// 远程存储：返回 upload_urls[index]（不足则用最后一个）
+    /// 本地存储：返回 None，由调用方拼接 /file/upload/{session_id}/{index}
+    pub fn chunk_upload_url(&self, index: usize) -> Option<&str> {
+        if !self.is_remote_storage() {
+            return None;
+        }
+        if self.upload_urls.is_empty() {
+            return None;
+        }
+        Some(self.upload_urls[index.min(self.upload_urls.len() - 1)].as_str())
+    }
 }
 
 // ===== API 分页响应 =====

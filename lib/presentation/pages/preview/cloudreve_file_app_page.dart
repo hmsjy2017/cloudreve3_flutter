@@ -1,10 +1,15 @@
 import 'dart:convert';
+import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:webview_flutter/webview_flutter.dart';
+import 'package:flutter_inappwebview/flutter_inappwebview.dart';
+import 'package:webview_flutter/webview_flutter.dart' as mobile;
 
 import '../../../data/models/file_model.dart';
 import '../../../services/api_service.dart';
+
+bool get _isDesktop => !kIsWeb && (Platform.isWindows || Platform.isLinux);
 
 /// 完全交给 Cloudreve 官方 Web 前端处理文件打开。
 ///
@@ -26,7 +31,9 @@ class CloudreveFileAppPage extends StatefulWidget {
 }
 
 class _CloudreveFileAppPageState extends State<CloudreveFileAppPage> {
-  late final WebViewController _controller;
+  mobile.WebViewController? _mobileController;
+  InAppWebViewController? _desktopController;
+  Key _desktopKey = UniqueKey();
 
   bool _isPreparing = true;
   bool _sessionInjected = false;
@@ -40,26 +47,28 @@ class _CloudreveFileAppPageState extends State<CloudreveFileAppPage> {
   void initState() {
     super.initState();
 
-    _controller = WebViewController()
-      ..setJavaScriptMode(JavaScriptMode.unrestricted)
-      ..setBackgroundColor(Colors.transparent)
-      ..setNavigationDelegate(
-        NavigationDelegate(
-          onProgress: (progress) {
-            if (!mounted) return;
-            setState(() => _progress = progress);
-          },
-          onPageFinished: (_) => _injectSessionAndOpenIfNeeded(),
-          onWebResourceError: (error) {
-            if (!mounted) return;
-            if (error.isForMainFrame == true) {
-              setState(() {
-                _error = '${error.errorCode}: ${error.description}';
-              });
-            }
-          },
-        ),
-      );
+    if (!_isDesktop) {
+      _mobileController = mobile.WebViewController()
+        ..setJavaScriptMode(mobile.JavaScriptMode.unrestricted)
+        ..setBackgroundColor(Colors.transparent)
+        ..setNavigationDelegate(
+          mobile.NavigationDelegate(
+            onProgress: (progress) {
+              if (!mounted) return;
+              setState(() => _progress = progress);
+            },
+            onPageFinished: (_) => _injectSessionAndOpenIfNeeded(),
+            onWebResourceError: (error) {
+              if (!mounted) return;
+              if (error.isForMainFrame == true) {
+                setState(() {
+                  _error = '${error.errorCode}: ${error.description}';
+                });
+              }
+            },
+          ),
+        );
+    }
 
     _prepareAndOpen();
   }
@@ -78,9 +87,11 @@ class _CloudreveFileAppPageState extends State<CloudreveFileAppPage> {
 
       _sessionStateJson = await _buildCloudreveFrontendSessionJson();
 
-      // 先打开同源页面，再注入 localStorage。
-      // 这样 Cloudreve 官方前端可以直接复用 App 的 access_token。
-      await _controller.loadRequest(_originUri);
+      if (!_isDesktop && _mobileController != null) {
+        await _mobileController!.loadRequest(_originUri);
+      } else if (_isDesktop) {
+        setState(() => _desktopKey = UniqueKey());
+      }
 
       if (!mounted) return;
       setState(() => _isPreparing = false);
@@ -187,9 +198,19 @@ class _CloudreveFileAppPageState extends State<CloudreveFileAppPage> {
           } catch (e) {}
           window.location.replace(${jsonEncode(target)});
         ''';
-        await _controller.runJavaScript(script);
+        if (!_isDesktop && _mobileController != null) {
+          await _mobileController!.runJavaScript(script);
+        } else if (_isDesktop && _desktopController != null) {
+          await _desktopController!.evaluateJavascript(source: script);
+        }
       } else {
-        await _controller.loadRequest(_targetUri);
+        if (!_isDesktop && _mobileController != null) {
+          await _mobileController!.loadRequest(_targetUri);
+        } else if (_isDesktop && _desktopController != null) {
+          await _desktopController!.loadUrl(
+            urlRequest: URLRequest(url: WebUri(_targetUri.toString())),
+          );
+        }
       }
     } catch (e) {
       if (!mounted) return;
@@ -199,7 +220,13 @@ class _CloudreveFileAppPageState extends State<CloudreveFileAppPage> {
 
   Future<void> _openTargetAgain() async {
     _sessionInjected = true;
-    await _controller.loadRequest(_targetUri);
+    if (!_isDesktop && _mobileController != null) {
+      await _mobileController!.loadRequest(_targetUri);
+    } else if (_isDesktop && _desktopController != null) {
+      await _desktopController!.loadUrl(
+        urlRequest: URLRequest(url: WebUri(_targetUri.toString())),
+      );
+    }
   }
 
   @override
@@ -219,7 +246,13 @@ class _CloudreveFileAppPageState extends State<CloudreveFileAppPage> {
           IconButton(
             tooltip: '刷新',
             icon: const Icon(Icons.refresh),
-            onPressed: () => _controller.reload(),
+            onPressed: () {
+              if (!_isDesktop && _mobileController != null) {
+                _mobileController!.reload();
+              } else if (_isDesktop && _desktopController != null) {
+                _desktopController!.reload();
+              }
+            },
           ),
         ],
         bottom: PreferredSize(
@@ -260,6 +293,48 @@ class _CloudreveFileAppPageState extends State<CloudreveFileAppPage> {
       );
     }
 
-    return WebViewWidget(controller: _controller);
+    return _isDesktop ? _buildDesktopWebView() : mobile.WebViewWidget(controller: _mobileController!);
+  }
+
+  Widget _buildDesktopWebView() {
+    return InAppWebView(
+      key: _desktopKey,
+      initialSettings: InAppWebViewSettings(
+        javaScriptEnabled: true,
+        domStorageEnabled: true,
+        isInspectable: true,
+        cacheMode: CacheMode.LOAD_DEFAULT,
+        supportMultipleWindows: true,
+        transparentBackground: true,
+        supportZoom: true,
+        useHybridComposition: true,
+      ),
+      onWebViewCreated: (controller) {
+        _desktopController = controller;
+        controller.loadUrl(
+          urlRequest: URLRequest(url: WebUri(_originUri.toString())),
+        );
+      },
+      onLoadStop: (controller, url) {
+        _desktopController = controller;
+        _injectSessionAndOpenIfNeeded();
+      },
+      onProgressChanged: (controller, progress) {
+        if (mounted) setState(() => _progress = progress);
+      },
+      onReceivedError: (controller, request, error) {
+        if (mounted) {
+          setState(() {
+            _error = '${error.type}: ${error.description}'.trim();
+          });
+        }
+      },
+    );
+  }
+
+  @override
+  void dispose() {
+    _desktopController?.dispose();
+    super.dispose();
   }
 }

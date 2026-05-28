@@ -22,7 +22,7 @@ impl SyncEngine {
                     let file_size = metadata.len();
                     match self.api.create_upload_session(remote_dcim_uri, file_size, false, None, None, None).await {
                         Ok(session) => {
-                            match crate::uploader::upload_file_chunked(&self.api, local_path, &session).await {
+                            match crate::uploader::upload_file_chunked(&self.api, local_path, &session, "album").await {
                                 Ok(_) => {
                                     let remote_uri = format!("{}/{}", remote_dcim_uri, file_name);
                                     let hash = crate::utils::quick_hash(local_path, file_size).await.unwrap_or_default();

@@ -5,6 +5,7 @@ pub mod errors;
 pub mod utils;
 pub mod sync_db;
 pub mod api_client;
+pub mod server_error_code;
 pub mod fs_scanner;
 pub mod conflict_resolver;
 pub mod transfer;

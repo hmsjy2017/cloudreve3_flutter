@@ -126,9 +126,15 @@ pub async fn upload_file(
         let chunk = &buf[..filled];
         let mut chunk_retries = 0u32;
         loop {
-            match api.upload_chunk(&session.session_id, index, chunk).await {
+            match api.upload_chunk(&session, index, chunk, local.size, task_id).await {
                 Ok(_) => break,
                 Err(SyncError::Auth(_)) => return Err(SyncError::Auth("Token 过期".into())),
+                // 业务错误，重试无意义，直接失败
+                Err(e @ SyncError::StoragePolicyDenied(_))
+                | Err(e @ SyncError::UploadFailed(_))
+                | Err(e @ SyncError::FileNotFound(_))
+                | Err(e @ SyncError::PermissionDenied(_))
+                | Err(e @ SyncError::ObjectExisted) => return Err(e),
                 Err(e) if chunk_retries < max_retries => {
                     chunk_retries += 1;
                     let delay = crate::utils::retry_delay_ms(chunk_retries, 1000, 30000);
@@ -139,6 +145,13 @@ pub async fn upload_file(
             }
         }
         index += 1;
+    }
+
+    // 远程存储策略：上传完成后回调 Cloudreve 服务端
+    if session.is_remote_storage() {
+        if let Err(e) = api.callback_upload_complete(&session, task_id).await {
+            tracing::warn!("[{}][{}] 上传完成回调失败: {}", task_id, session.file_name, e);
+        }
     }
 
     // 上传完成后获取远程文件信息
@@ -206,6 +219,11 @@ pub async fn retry_upload_session(
                 }
                 return Err(SyncError::LockConflict { tokens });
             }
+            // 业务错误，重试无意义，直接失败
+            Err(e @ SyncError::StoragePolicyDenied(_))
+            | Err(e @ SyncError::UploadFailed(_))
+            | Err(e @ SyncError::FileNotFound(_))
+            | Err(e @ SyncError::PermissionDenied(_)) => return Err(e),
             Err(e) if attempt <= max_retries => {
                 let delay = crate::utils::retry_delay_ms(attempt, 1000, 30000);
                 tracing::warn!("[{}] 创建上传会话失败，{}ms后重试 ({}): {}", task_id, delay, attempt, e);
@@ -273,9 +291,11 @@ pub async fn upload_file_chunked(
     api: &ApiClient,
     local_path: &Path,
     session: &UploadSession,
+    task_id: &str,
 ) -> Result<()> {
     let chunk_size = session.chunk_size as usize;
     let file = tokio::fs::File::open(local_path).await?;
+    let file_size = file.metadata().await.map(|m| m.len()).unwrap_or(0);
     let mut reader = tokio::io::BufReader::new(file);
     let mut buf = vec![0u8; chunk_size];
     let mut index: u32 = 0;
@@ -291,8 +311,15 @@ pub async fn upload_file_chunked(
         }
         if filled == 0 { break; }
 
-        api.upload_chunk(&session.session_id, index, &buf[..filled]).await?;
+        api.upload_chunk(session, index, &buf[..filled], file_size, task_id).await?;
         index += 1;
+    }
+
+    // 远程存储策略：上传完成后回调 Cloudreve 服务端
+    if session.is_remote_storage() {
+        if let Err(e) = api.callback_upload_complete(session, task_id).await {
+            tracing::warn!("[{}][{}] 上传完成回调失败: {}", task_id, session.file_name, e);
+        }
     }
 
     Ok(())

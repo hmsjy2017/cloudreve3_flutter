@@ -1,5 +1,6 @@
 use crate::errors::{Result, SyncError};
 use crate::models::*;
+use crate::server_error_code::api_code_to_error;
 use reqwest::Client;
 use serde::Deserialize;
 use std::sync::Arc;
@@ -154,12 +155,11 @@ impl ApiClient {
             return Err(SyncError::Network(format!("HTTP {}", resp.status())));
         }
         let api_resp: ApiResponse<serde_json::Value> = resp.json().await?;
-        if api_resp.code == 401 {
-            return Err(SyncError::Auth("Login required".into()));
+        if api_resp.code == 0 {
+            return Ok(api_resp.data.unwrap_or_default());
         }
-        if api_resp.code == 40004 {
-            return Err(SyncError::ObjectExisted);
-        }
+
+        // 40073 锁冲突需要特殊处理 data
         if api_resp.code == 40073 {
             let items = api_resp.data
                 .and_then(|d| d.as_array().cloned())
@@ -177,12 +177,11 @@ impl ApiClient {
                 .collect();
             return Err(SyncError::LockConflict { tokens: items });
         }
-        if api_resp.code != 0 {
-            return Err(SyncError::Network(
-                api_resp.msg.unwrap_or_else(|| format!("错误码: {}", api_resp.code)),
-            ));
-        }
-        Ok(api_resp.data.unwrap_or_default())
+
+        let msg = api_resp.msg
+            .filter(|m| !m.is_empty())
+            .unwrap_or_default();
+        Err(api_code_to_error(api_resp.code, &msg))
     }
 
     /// 发送带认证的请求，自动处理 401（刷新 token 后重试一次）
@@ -196,9 +195,22 @@ impl ApiClient {
 
         // 第一次尝试
         let token = self.token().await;
-        let resp = request_builder(token)
+        let resp = match request_builder(token)
             .header("X-Cr-Client-Id", &client_id)
-            .send().await?;
+            .send()
+            .await
+        {
+            Ok(r) => r,
+            Err(e) => {
+                tracing::warn!(
+                    "请求发送失败: kind={:?}, url={:?}, error={}",
+                    e.is_connect(),
+                    e.url().map(|u| u.as_str()),
+                    e
+                );
+                return Err(e.into());
+            }
+        };
         let result = self.parse_response(resp).await;
 
         if let Err(SyncError::Auth(_)) = result {
@@ -206,9 +218,22 @@ impl ApiClient {
             self.refresh_access_token().await?;
             // 用新 token 重试
             let new_token = self.token().await;
-            let resp = request_builder(new_token)
+            let resp = match request_builder(new_token)
                 .header("X-Cr-Client-Id", &client_id)
-                .send().await?;
+                .send()
+                .await
+            {
+                Ok(r) => r,
+                Err(e) => {
+                    tracing::warn!(
+                        "重试请求发送失败: kind={:?}, url={:?}, error={}",
+                        e.is_connect(),
+                        e.url().map(|u| u.as_str()),
+                        e
+                    );
+                    return Err(e.into());
+                }
+            };
             return self.parse_response(resp).await;
         }
 
@@ -261,7 +286,22 @@ impl ApiClient {
             }
 
             for dir_uri in dirs_to_recurse {
-                self.list_all_files_recursive(&dir_uri, result).await?;
+                let mut retry = 0u32;
+                loop {
+                    match self.list_all_files_recursive(&dir_uri, result).await {
+                        Ok(()) => break,
+                        Err(e) => {
+                            retry += 1;
+                            if retry > 3 {
+                                tracing::error!("递归列出目录失败，跳过: {}: {}", dir_uri, e);
+                                break;
+                            }
+                            let delay = crate::utils::retry_delay_ms(retry, 2000, 30000);
+                            tracing::warn!("递归列出目录失败 (重试 {}/3): {}: {}, {}ms后重试", retry, dir_uri, e, delay);
+                            tokio::time::sleep(std::time::Duration::from_millis(delay)).await;
+                        }
+                    }
+                }
             }
 
             Ok(())
@@ -269,6 +309,33 @@ impl ApiClient {
     }
 
     pub async fn list_files_page(
+        &self,
+        uri: &str,
+        page: u32,
+        page_size: u32,
+        next_page_token: Option<&str>,
+    ) -> Result<ListFilesResponse> {
+        let max_retries = 3u32;
+        let mut attempt = 0u32;
+        loop {
+            attempt += 1;
+            match self.list_files_page_inner(uri, page, page_size, next_page_token).await {
+                Ok(resp) => return Ok(resp),
+                Err(SyncError::Auth(_)) => return Err(SyncError::Auth("Token 过期".into())),
+                Err(e) if attempt <= max_retries => {
+                    let delay = crate::utils::retry_delay_ms(attempt, 2000, 30000);
+                    tracing::warn!(
+                        "列出文件失败 (重试 {}/{}): uri={}, error={}, {}ms后重试",
+                        attempt, max_retries, uri, e, delay,
+                    );
+                    tokio::time::sleep(std::time::Duration::from_millis(delay)).await;
+                }
+                Err(e) => return Err(e),
+            }
+        }
+    }
+
+    async fn list_files_page_inner(
         &self,
         uri: &str,
         page: u32,
@@ -389,14 +456,56 @@ impl ApiClient {
         let chunk_size = data.get("chunk_size")
             .and_then(|c| c.as_u64())
             .unwrap_or(10 * 1024 * 1024);
+        let upload_urls: Vec<String> = data.get("upload_urls")
+            .and_then(|u| u.as_array())
+            .map(|arr| arr.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+            .unwrap_or_default();
+        let storage_policy_type = data.get("storage_policy")
+            .and_then(|sp| sp.get("type"))
+            .and_then(|t| t.as_str())
+            .unwrap_or("local")
+            .to_string();
+        let callback_secret = data.get("callback_secret")
+            .and_then(|s| s.as_str())
+            .unwrap_or("")
+            .to_string();
+
+        let file_name = uri.rsplit('/').next().unwrap_or(uri).to_string();
+
+        tracing::info!(
+            "[{}] 创建上传会话: policy={}, urls={}, chunk_size={}",
+            file_name, storage_policy_type, upload_urls.len(), chunk_size,
+        );
 
         Ok(UploadSession {
             session_id,
             chunk_size,
+            upload_urls,
+            storage_policy_type,
+            callback_secret,
+            file_name,
         })
     }
 
     pub async fn upload_chunk(
+        &self,
+        session: &UploadSession,
+        index: u32,
+        data: &[u8],
+        file_size: u64,
+        task_id: &str,
+    ) -> Result<()> {
+        if let Some(url) = session.chunk_upload_url(index as usize) {
+            // 远程存储策略：直接上传到外部 URL（OneDrive/S3/OSS 等）
+            self.upload_chunk_to_remote(url, data, index, file_size, session, task_id).await
+        } else {
+            // 本地存储策略：上传到 Cloudreve 服务端
+            self.upload_chunk_local(&session.session_id, index, data).await
+        }
+    }
+
+    /// 本地存储：上传分片到 /file/upload/{session_id}/{index}
+    async fn upload_chunk_local(
         &self,
         session_id: &str,
         index: u32,
@@ -414,6 +523,88 @@ impl ApiClient {
                 .header("Content-Length", &content_len)
                 .body(chunk_data.clone())
         }).await?;
+        Ok(())
+    }
+
+    /// 远程存储：上传分片到外部 URL（OneDrive/S3 等），无需 Cloudreve token
+    /// 必须带 Content-Range 头：bytes {start}-{end}/{total}
+    async fn upload_chunk_to_remote(
+        &self,
+        url: &str,
+        data: &[u8],
+        index: u32,
+        file_size: u64,
+        session: &UploadSession,
+        task_id: &str,
+    ) -> Result<()> {
+        let chunk_size = session.chunk_size;
+        let file_name = &session.file_name;
+        let start = index as u64 * chunk_size;
+        let end = start + data.len() as u64 - 1;
+        let content_range = format!("bytes {}-{}/{}", start, end, file_size);
+        let content_len = data.len().to_string();
+
+        tracing::debug!("[{}][{}] 远程存储上传分片 {}: Content-Range={}", task_id, file_name, index, content_range);
+
+        let resp = self.client
+            .put(url)
+            .header("Content-Length", &content_len)
+            .header("Content-Range", &content_range)
+            .body(data.to_vec())
+            .timeout(std::time::Duration::from_secs(300))
+            .send()
+            .await
+            .map_err(|e| {
+                tracing::warn!("[{}][{}] 远程存储上传失败: error={}", task_id, file_name, e);
+                SyncError::from(e)
+            })?;
+
+        if !resp.status().is_success() {
+            let status = resp.status();
+            let body = resp.text().await.unwrap_or_default();
+            return Err(SyncError::UploadFailed(format!(
+                "远程存储返回 HTTP {}: {}",
+                status,
+                body.chars().take(200).collect::<String>()
+            )));
+        }
+
+        // 202 = 分片已接收，上传未完成，继续下一个分片
+        // 200/201 = 上传完成，文件已创建
+        let status = resp.status();
+        if status.as_u16() == 202 {
+            tracing::debug!("[{}][{}] 远程存储分片 {} 已接收(202)，继续上传", task_id, file_name, index);
+        } else if status.as_u16() == 200 || status.as_u16() == 201 {
+            tracing::info!("[{}][{}] 远程存储上传完成({}), 分片 {}", task_id, file_name, status, index);
+        }
+
+        Ok(())
+    }
+
+    /// 远程存储上传完成后回调 Cloudreve 服务端
+    /// POST /callback/{storage_policy_type}/{session_id}/{callback_secret}
+    pub async fn callback_upload_complete(&self, session: &UploadSession, task_id: &str) -> Result<()> {
+        if session.callback_secret.is_empty() {
+            tracing::warn!("[{}][{}] 上传回调跳过: callback_secret 为空", task_id, session.file_name);
+            return Ok(());
+        }
+
+        let url = format!(
+            "{}/callback/{}/{}/{}",
+            self.base_url,
+            session.storage_policy_type,
+            session.session_id,
+            session.callback_secret,
+        );
+        tracing::info!("[{}][{}] 上传完成回调: policy={}, session={}", task_id, session.file_name, session.storage_policy_type, session.session_id);
+
+        self.send_with_auth_retry(|token| {
+            self.client
+                .post(&url)
+                .bearer_auth(&token)
+        }).await?;
+
+        tracing::info!("[{}][{}] 上传完成回调成功: policy={}, session={}", task_id, session.file_name, session.storage_policy_type, session.session_id);
         Ok(())
     }
 
