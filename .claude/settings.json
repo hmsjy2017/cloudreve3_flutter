@@ -32,7 +32,15 @@
       "Bash(cp /home/aeno/Downloads/pr/cloudreve4_flutter/lib/presentation/pages/preview/cloudreve_file_app_page.dart lib/presentation/pages/preview/)",
       "Bash(cp /home/aeno/Downloads/pr/cloudreve4_flutter/lib/presentation/pages/files/category_files_page.dart lib/presentation/pages/files/category_files_page.dart)",
       "Bash(gh api *)",
-      "Bash(gh search *)"
+      "Bash(gh search *)",
+      "Bash(cargo check *)",
+      "Bash(export ANDROID_NDK_HOME=/home/aeno/Datas/SDK/android/ndk/28.2.13676358)",
+      "Read(//home/aeno/Datas/SDK/android/ndk/28.2.13676358/toolchains/llvm/**)",
+      "Read(//home/aeno/Datas/SDK/android/ndk/28.2.13676358/toolchains/llvm/prebuilt/**)",
+      "Bash(ls /home/aeno/Datas/SDK/android/ndk/28.2.13676358/toolchains/)",
+      "Read(//home/aeno/Datas/SDK/android/ndk/28.2.13676358/toolchains/**)",
+      "Bash(export CC_aarch64_linux_android=/home/aeno/Datas/SDK/android/ndk/28.2.13676358/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android21-clang)",
+      "Bash(export AR_aarch64_linux_android=/home/aeno/Datas/SDK/android/ndk/28.2.13676358/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-ar)"
     ],
     "additionalDirectories": [
       "/home/aeno/Documents/cloudreve4_flutter4_flutter/lib/presentation/widgets",

@@ -172,7 +172,7 @@ impl Worker {
 
     /// 1. 创建远程目录结构（UploadOnly / Full / MirrorWcf）
     async fn step_create_remote_dirs(&self) {
-        if matches!(self.config.sync_mode, SyncMode::DownloadOnly) {
+        if matches!(self.config.sync_mode, SyncMode::DownloadOnly | SyncMode::AlbumDownload) {
             return;
         }
         let tid = &self.task_id;
@@ -197,7 +197,7 @@ impl Worker {
 
     /// 2. 创建本地目录结构（DownloadOnly / Full / MirrorWcf）
     async fn step_create_local_dirs(&self) {
-        if matches!(self.config.sync_mode, SyncMode::UploadOnly) {
+        if matches!(self.config.sync_mode, SyncMode::UploadOnly | SyncMode::AlbumUpload) {
             return;
         }
         let tid = &self.task_id;
@@ -212,9 +212,9 @@ impl Worker {
         }
     }
 
-    /// 2.1 执行远程重命名（UploadOnly / Full / MirrorWcf）
+    /// 2.1 执行远程重命名（UploadOnly / Full / MirrorWcf / AlbumUpload）
     async fn step_rename_remote(&self, summary: &mut SyncSummary) {
-        if matches!(self.config.sync_mode, SyncMode::DownloadOnly) {
+        if matches!(self.config.sync_mode, SyncMode::DownloadOnly | SyncMode::AlbumDownload) {
             return;
         }
         let tid = &self.task_id;
@@ -293,7 +293,7 @@ impl Worker {
 
     /// 2.2 执行远程移动（本地触发）
     async fn step_move_remote(&self, summary: &mut SyncSummary) {
-        if matches!(self.config.sync_mode, SyncMode::DownloadOnly) {
+        if matches!(self.config.sync_mode, SyncMode::DownloadOnly | SyncMode::AlbumDownload) {
             return;
         }
         let tid = &self.task_id;
@@ -716,9 +716,9 @@ impl Worker {
         }
     }
 
-    /// 4. 并发上传（UploadOnly / Full / MirrorWcf）
+    /// 4. 并发上传（UploadOnly / Full / MirrorWcf / AlbumUpload）
     async fn step_execute_uploads(&self, summary: &mut SyncSummary, transfer_semaphore: &Arc<Semaphore>) {
-        if matches!(self.config.sync_mode, SyncMode::DownloadOnly) {
+        if matches!(self.config.sync_mode, SyncMode::DownloadOnly | SyncMode::AlbumDownload) {
             return;
         }
         let tid = &self.task_id;
@@ -921,7 +921,7 @@ impl Worker {
                     )
                     .await;
             }
-        } else if !matches!(self.config.sync_mode, SyncMode::UploadOnly) {
+        } else if !matches!(self.config.sync_mode, SyncMode::UploadOnly | SyncMode::AlbumUpload) {
             let mut download_handles: Vec<(String, tokio::task::JoinHandle<Result<()>>)> =
                 Vec::new();
             for action in &self.plan.downloads {
@@ -1005,9 +1005,9 @@ impl Worker {
         }
     }
 
-    /// 6. 删除本地文件（DownloadOnly / Full / MirrorWcf — 远程删除触发的本地删除）
+    /// 6. 删除本地文件（DownloadOnly / Full / MirrorWcf / AlbumDownload — 远程删除触发的本地删除）
     async fn step_delete_local(&self, summary: &mut SyncSummary) {
-        if matches!(self.config.sync_mode, SyncMode::UploadOnly) {
+        if matches!(self.config.sync_mode, SyncMode::UploadOnly | SyncMode::AlbumUpload) {
             return;
         }
         let tid = &self.task_id;
@@ -1064,7 +1064,7 @@ impl Worker {
 
     /// 6.5 本地重命名（远程触发 → 本地执行 rename）
     async fn step_rename_local(&self, summary: &mut SyncSummary) {
-        if matches!(self.config.sync_mode, SyncMode::UploadOnly) {
+        if matches!(self.config.sync_mode, SyncMode::UploadOnly | SyncMode::AlbumUpload) {
             return;
         }
         let tid = &self.task_id;
@@ -1141,7 +1141,7 @@ impl Worker {
 
     /// 6.6 本地移动（远程触发 → 本地执行 move）
     async fn step_move_local(&self, summary: &mut SyncSummary) {
-        if matches!(self.config.sync_mode, SyncMode::UploadOnly) {
+        if matches!(self.config.sync_mode, SyncMode::UploadOnly | SyncMode::AlbumUpload) {
             return;
         }
         let tid = &self.task_id;

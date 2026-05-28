@@ -17,16 +17,16 @@ impl SyncEngine {
             (config.local_root.clone(), config.remote_root.clone(), config.sync_mode.clone())
         };
 
-        // 仅 DownloadOnly、Full 和 MirrorWcf 订阅 SSE
-        let mut remote_rx = if matches!(sync_mode, SyncMode::DownloadOnly | SyncMode::Full | SyncMode::MirrorWcf) {
+        // 仅 DownloadOnly、Full、MirrorWcf、AlbumDownload 订阅 SSE
+        let mut remote_rx = if matches!(sync_mode, SyncMode::DownloadOnly | SyncMode::Full | SyncMode::MirrorWcf | SyncMode::AlbumDownload) {
             Some(event_handler.subscribe_sse(&remote_root).await?)
         } else {
             tracing::info!("仅上传模式: 不订阅 SSE 远程事件");
             None
         };
 
-        // 仅 UploadOnly、Full 和 MirrorWcf 启动本地文件监听
-        let mut local_rx = if matches!(sync_mode, SyncMode::UploadOnly | SyncMode::Full | SyncMode::MirrorWcf) {
+        // 仅 UploadOnly、Full、MirrorWcf、AlbumUpload 启动本地文件监听
+        let mut local_rx = if matches!(sync_mode, SyncMode::UploadOnly | SyncMode::Full | SyncMode::MirrorWcf | SyncMode::AlbumUpload) {
             Some(spawn_local_watcher(&local_root, self.shutdown_token.lock().unwrap().clone()))
         } else {
             tracing::info!("仅下载模式: 不启动本地文件监听");

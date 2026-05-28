@@ -1,6 +1,7 @@
 #!/bin/bash
 
 ### fastforge 不好用, 还是手写吧
+set -e
 
 function build_linux_release() { 
     # 1. 基础变量配置
@@ -97,11 +98,54 @@ EOF
     echo "安装命令: sudo apt install ./${OUTPUT_NAME}"
 }
 
+function build_sync_core() {
+    echo "🦀 进入 Rust sync_core 目录"
+    cd native 
+    # cargo clean
+    echo "🦀 正在编译 Rust 核心库 (arm64-v8a)..."
+    cargo ndk -t aarch64-linux-android build --release
+
+    echo "🦀 正在编译 Rust 核心库 (armeabi-v7a)..."
+    cargo ndk -t armv7-linux-androideabi build --release
+
+    echo "🦀 正在编译 Rust 核心库 (x86_64)..."
+    cargo ndk -t x86_64-linux-android build --release
+
+    echo "🦀 sync_core 构建完成, 准备同步到 Android 项目"
+    
+    cd ..
+
+    LIB_DEST="android/app/src/main/jniLibs"
+    
+    if [ -d "$LIB_DEST" ]; then
+      echo "🦀 目录已存在，清理旧的jniLibs"
+      # rm -rf "$LIB_DEST"
+    fi
+
+    mkdir -p "$LIB_DEST/arm64-v8a"
+    mkdir -p "$LIB_DEST/armeabi-v7a"
+    mkdir -p "$LIB_DEST/x86_64"
+
+    cp -f native/target/aarch64-linux-android/release/libsync_core.so "$LIB_DEST/arm64-v8a/"
+    cp -f native/target/armv7-linux-androideabi/release/libsync_core.so "$LIB_DEST/armeabi-v7a/"
+    cp -f native/target/x86_64-linux-android/release/libsync_core.so "$LIB_DEST/x86_64/"
+    
+    echo "✅ 同步完成！.so 已放入 jniLibs 目录。当前架构分布..."
+    tree -L 2 "$LIB_DEST"
+}
+
 function build_android_release() { 
+
+    build_sync_core
+    
+    echo "Android Release 构建开始..."
+
     PKG_DIR="$(pwd)/dist/android"
+
     
     if [ -d "$PKG_DIR" ]; then
       echo "目录已存在，清理旧的android构建产物 $PKG_DIR"
+      rm -rf "${PKG_DIR}"
     fi
 
     echo "正在编译 Flutter Android Release ..."
@@ -121,13 +165,16 @@ function main() {
         apk)
             build_android_release
             ;;
+        rs)
+            build_sync_core
+            ;;
         all)
             build_linux_release
             build_android_release
             ;;
         *)
-            echo "参数错误，使用：linux, apk, all"
-            echo '用法：$0 {linux|apk|all}'
+            echo "参数错误，使用：linux, apk, rs, all"
+            echo '用法：$0 {linux|apk|rs|all}'
             ;;
     esac
 }

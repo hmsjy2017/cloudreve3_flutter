@@ -200,7 +200,8 @@ impl SyncDb {
             SyncMode::Full => "full",
             SyncMode::UploadOnly => "upload_only",
             SyncMode::DownloadOnly => "download_only",
-            SyncMode::Album => "album",
+            SyncMode::AlbumUpload => "album_upload",
+            SyncMode::AlbumDownload => "album_download",
             SyncMode::MirrorWcf => "mirror_wcf",
         };
 

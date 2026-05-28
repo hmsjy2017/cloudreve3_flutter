@@ -1870,9 +1870,11 @@ dependencies = [
 name = "sync-android"
 version = "0.1.0"
 dependencies = [
+ "android_logger",
  "anyhow",
  "async-trait",
  "jni",
+ "log",
  "thiserror 2.0.18",
  "tokio",
  "tracing",
@@ -1882,6 +1884,7 @@ dependencies = [
 name = "sync-core"
 version = "0.1.0"
 dependencies = [
+ "android_logger",
  "anyhow",
  "async-trait",
  "bytes",
@@ -1893,6 +1896,7 @@ dependencies = [
  "futures-util",
  "hex",
  "jni",
+ "log",
  "mime_guess",
  "notify-debouncer-full",
  "once_cell",

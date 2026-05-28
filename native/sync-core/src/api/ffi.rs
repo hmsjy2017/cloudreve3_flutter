@@ -4,6 +4,69 @@ use std::sync::Arc;
 use crate::api::ffi_types::*;
 use crate::sync_engine::SyncEngine;
 
+#[cfg(target_os = "android")]
+mod android_log {
+    use std::fmt::Write;
+    use tracing::{Event, Level, Subscriber};
+    use tracing_subscriber::layer::{Context, Layer};
+    use tracing_subscriber::registry::LookupSpan;
+
+    /// Tracing Layer：将事件转发到 `log` crate → android_logger → Logcat
+    pub struct AndroidLogLayer;
+
+    impl<S> Layer<S> for AndroidLogLayer
+    where
+        S: Subscriber + for<'a> LookupSpan<'a>,
+    {
+        fn on_event(&self, event: &Event<'_>, _ctx: Context<'_, S>) {
+            let log_level = match *event.metadata().level() {
+                Level::ERROR => log::Level::Error,
+                Level::WARN => log::Level::Warn,
+                Level::INFO => log::Level::Info,
+                Level::DEBUG => log::Level::Debug,
+                Level::TRACE => log::Level::Trace,
+            };
+
+            let mut visitor = EventVisitor::default();
+            event.record(&mut visitor);
+
+            let target = event.metadata().target();
+            if visitor.message.is_empty() {
+                log::log!(log_level, "[{}] {}", target, visitor.fields.trim_end());
+            } else if visitor.fields.is_empty() {
+                log::log!(log_level, "[{}] {}", target, visitor.message);
+            } else {
+                log::log!(log_level, "[{}] {} {}", target, visitor.message, visitor.fields.trim_end());
+            }
+        }
+    }
+
+    #[derive(Default)]
+    struct EventVisitor {
+        message: String,
+        fields: String,
+    }
+
+    impl tracing::field::Visit for EventVisitor {
+        fn record_debug(&mut self, field: &tracing::field::Field, value: &dyn std::fmt::Debug) {
+            if field.name() == "message" {
+                // message 字段由 tracing::field::display() 包装，其 Debug 实际走 Display，无多余引号
+                write!(self.message, "{:?}", value).unwrap();
+            } else {
+                write!(self.fields, "{}={:?} ", field.name(), value).unwrap();
+            }
+        }
+    }
+
+    pub fn init_android_logger() {
+        android_logger::init_once(
+            android_logger::Config::default()
+                .with_max_level(log::LevelFilter::Trace)
+                .with_tag("RustSyncCore"),
+        );
+    }
+}
+
 /// 全局引擎实例
 static ENGINE: once_cell::sync::OnceCell<Arc<SyncEngine>> = once_cell::sync::OnceCell::new();
 
@@ -36,7 +99,8 @@ fn config_from_ffi(ffi: SyncConfigFfi) -> crate::models::SyncConfig {
     let sync_mode = match ffi.sync_mode.as_str() {
         "upload_only" => SyncMode::UploadOnly,
         "download_only" => SyncMode::DownloadOnly,
-        "album" => SyncMode::Album,
+        "album_upload" => SyncMode::AlbumUpload,
+        "album_download" => SyncMode::AlbumDownload,
         "mirror_wcf" => SyncMode::MirrorWcf,
         _ => SyncMode::Full,
     };
@@ -86,7 +150,8 @@ fn config_to_ffi(c: &crate::models::SyncConfig) -> SyncConfigFfi {
         SyncMode::Full => "full",
         SyncMode::UploadOnly => "upload_only",
         SyncMode::DownloadOnly => "download_only",
-        SyncMode::Album => "album",
+        SyncMode::AlbumUpload => "album_upload",
+        SyncMode::AlbumDownload => "album_download",
         SyncMode::MirrorWcf => "mirror_wcf",
     };
 
@@ -244,6 +309,10 @@ pub async fn init_sync_engine(config: SyncConfigFfi) -> Result<(), SyncErrorFfi>
         eprintln!("[sync-core] 警告: 无法创建日志文件 {}", log_path.display());
     }
 
+    // Android: 初始化 Logcat 日志后端（tracing → log → android_logger → Logcat）
+    #[cfg(target_os = "android")]
+    android_log::init_android_logger();
+
     // 尝试初始化 subscriber（仅首次有效，后续调用忽略）
     {
         use tracing_subscriber::layer::SubscriberExt;
@@ -257,6 +326,10 @@ pub async fn init_sync_engine(config: SyncConfigFfi) -> Result<(), SyncErrorFfi>
         LOG_RELOAD_HANDLE.set(reload_handle).ok();
 
         let registry = tracing_subscriber::registry().with(reload_filter);
+
+        // Android: 添加 Logcat 桥接层
+        #[cfg(target_os = "android")]
+        let registry = registry.with(android_log::AndroidLogLayer);
 
         if let Some(file) = log_file {
             let _ = registry

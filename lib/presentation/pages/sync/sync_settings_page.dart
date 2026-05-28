@@ -10,6 +10,8 @@ import '../../../core/utils/app_logger.dart';
 import '../../../data/models/sync_config_model.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/sync_provider.dart';
+import '../../../services/sync_service.dart';
+import 'package:permission_handler/permission_handler.dart';
 import '../../widgets/desktop_constrained.dart';
 import '../../widgets/folder_picker.dart';
 import '../../widgets/toast_helper.dart';
@@ -42,6 +44,10 @@ class _SyncSettingsPageState extends State<SyncSettingsPage> {
     _localRootController = TextEditingController(
       text: SyncDefaults.defaultLocalRoot(),
     );
+    if (Platform.isAndroid) {
+      _syncMode = SyncDefaults.defaultAndroidSyncMode;
+      _remoteRoot = SyncDefaults.defaultAndroidRemoteRoot;
+    }
 
     AppLogger.i('默认同步目录: ${_localRootController.text}');
 
@@ -60,6 +66,7 @@ class _SyncSettingsPageState extends State<SyncSettingsPage> {
           _maxWorkers = config.maxWorkers;
           _logLevel = config.logLevel;
         });
+        _applyAlbumPaths();
       }
       _loadSyncLogInfo();
     });
@@ -206,14 +213,35 @@ class _SyncSettingsPageState extends State<SyncSettingsPage> {
               _buildSection(
                 title: '相册同步',
                 children: [
-                  SwitchListTile(
-                    title: const Text('自动备份相册'),
-                    subtitle: const Text('将手机照片自动备份到云端'),
-                    value: _syncMode == 'album',
-                    onChanged: (v) {
-                      setState(() => _syncMode = v ? 'album' : 'full');
-                      _pushConfig();
-                    },
+                  if (sync.isActive || sync.isPaused)
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                      child: Text(
+                        '同步运行中，无法切换模式。请先停止同步再修改。',
+                        style: TextStyle(color: Theme.of(context).colorScheme.error, fontSize: 12),
+                      ),
+                    ),
+                  RadioGroup<String>(
+                    groupValue: _syncMode,
+                    onChanged: (sync.isActive || sync.isPaused)
+                        ? (_) {}
+                        : (v) {
+                            if (v != null) _handleAlbumModeChange(v);
+                          },
+                    child: Column(
+                      children: [
+                        RadioListTile<String>(
+                          title: const Text('仅上传'),
+                          subtitle: const Text('备份手机照片到云端'),
+                          value: 'album_upload',
+                        ),
+                        RadioListTile<String>(
+                          title: const Text('仅下载'),
+                          subtitle: const Text('从云端下载照片到手机'),
+                          value: 'album_download',
+                        ),
+                      ],
+                    ),
                   ),
                 ],
               ),
@@ -310,7 +338,7 @@ class _SyncSettingsPageState extends State<SyncSettingsPage> {
                       ),
                     ),
                   ),
-                if (sync.engineInitialized)
+                if (sync.engineInitialized && !Platform.isAndroid)
                   Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
                     child: SizedBox(
@@ -445,6 +473,24 @@ class _SyncSettingsPageState extends State<SyncSettingsPage> {
     }
 
     setState(() => _syncMode = newMode);
+  }
+
+  void _handleAlbumModeChange(String mode) {
+    setState(() {
+      _syncMode = mode;
+      _localRootController.text = SyncDefaults.defaultAndroidLocalRoot;
+      _remoteRoot = SyncDefaults.defaultAndroidRemoteRoot;
+    });
+    _pushConfig();
+  }
+
+  /// 当前模式为相册模式时，自动设置写死路径
+  void _applyAlbumPaths() {
+    if (!Platform.isAndroid) return;
+    if (_syncMode == 'album_upload' || _syncMode == 'album_download') {
+      _localRootController.text = SyncDefaults.defaultAndroidLocalRoot;
+      _remoteRoot = SyncDefaults.defaultAndroidRemoteRoot;
+    }
   }
 
   Future<bool?> _showModeConfirmDialog({
@@ -871,6 +917,8 @@ class _SyncSettingsPageState extends State<SyncSettingsPage> {
     if (config == null) return;
 
     final updated = config.copyWith(
+      localRoot: _localRootController.text,
+      remoteRoot: _remoteRoot,
       syncMode: _syncMode,
       conflictStrategy: _conflictStrategy,
       wcfDeleteMode: _wcfDeleteMode,
@@ -888,6 +936,41 @@ class _SyncSettingsPageState extends State<SyncSettingsPage> {
     if (server == null || token == null) {
       ToastHelper.failure('请先登录');
       return;
+    }
+
+    // Android 相册模式：先申请媒体权限
+    if (Platform.isAndroid && (_syncMode == 'album_upload' || _syncMode == 'album_download')) {
+      final statuses = await [
+        Permission.photos,
+        Permission.videos,
+      ].request();
+      if (!statuses[Permission.photos]!.isGranted || !statuses[Permission.videos]!.isGranted) {
+        if (mounted) {
+          ToastHelper.failure('需要相册和视频权限才能同步');
+          // 引导用户去系统设置页开启权限
+          final shouldOpen = await showDialog<bool>(
+            context: context,
+            builder: (ctx) => AlertDialog(
+              title: const Text('权限不足'),
+              content: const Text('相册同步需要访问照片和视频的权限，请在系统设置中开启。'),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(ctx, false),
+                  child: const Text('取消'),
+                ),
+                FilledButton(
+                  onPressed: () => Navigator.pop(ctx, true),
+                  child: const Text('去设置'),
+                ),
+              ],
+            ),
+          );
+          if (shouldOpen == true) {
+            await openAppSettings();
+          }
+        }
+        return;
+      }
     }
 
     final appSupportDir = await getApplicationSupportDirectory();
@@ -909,7 +992,21 @@ class _SyncSettingsPageState extends State<SyncSettingsPage> {
       logLevel: _logLevel,
     );
 
-    await sync.startSync(config);
+    // Album 模式：先初始化引擎，再确保远程相册目录存在
+    if (_syncMode == 'album_upload' || _syncMode == 'album_download') {
+      await sync.startSync(config);
+      try {
+        final result = await SyncService.instance.checkCloudAlbumDirs('cloudreve://my');
+        if (!(result['dcimExists'] as bool)) {
+          AppLogger.i('远程 DCIM 目录不存在，正在创建...');
+          await SyncService.instance.createCloudAlbumDirs('cloudreve://my');
+        }
+      } catch (e) {
+        AppLogger.w('检查/创建远程相册目录失败: $e');
+      }
+    } else {
+      await sync.startSync(config);
+    }
   }
 
   Future<void> _stopSync(SyncProvider sync) async {

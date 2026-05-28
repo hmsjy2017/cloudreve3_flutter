@@ -14,3 +14,10 @@ tracing = "0.1"
 anyhow = { workspace = true }
 tokio = { workspace = true }
 async-trait = "0.1"
+
+# 通用日志接口
+log = "0.4"
+
+# 仅在 Android 平台下生效的日志后端
+[target.'cfg(target_os = "android")'.dependencies]
+android_logger = "0.15"

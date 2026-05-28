@@ -58,6 +58,10 @@ impl FsScanner {
                 }
             };
 
+            let file_name = entry.file_name().to_string_lossy();
+            let depth = entry.depth();
+            tracing::trace!("扫描: depth={}, is_dir={}, name={}", depth, entry.file_type().is_dir(), file_name);
+
             // 符号链接处理
             if entry.path_is_symlink() && !follow_symlinks {
                 continue;
@@ -66,6 +70,10 @@ impl FsScanner {
             // 跳过同步元数据文件和系统文件
             let file_name = entry.file_name().to_string_lossy();
             if SKIP_NAMES.iter().any(|s| file_name == *s) {
+                continue;
+            }
+            // 跳过隐藏目录/文件（以 . 开头）
+            if file_name.starts_with('.') {
                 continue;
             }
             if file_name.starts_with(".sync_") {
@@ -143,6 +151,10 @@ impl FsScanner {
                 });
             }
         }
+
+        let dirs = entries.iter().filter(|e| e.is_dir).count();
+        let files = entries.iter().filter(|e| !e.is_dir).count();
+        tracing::debug!("扫描完成: {} 个条目 ({} 目录, {} 文件)", entries.len(), dirs, files);
 
         Ok(entries)
     }

@@ -49,7 +49,8 @@ pub enum SyncMode {
     Full,
     UploadOnly,
     DownloadOnly,
-    Album,
+    AlbumUpload,
+    AlbumDownload,
     MirrorWcf,
 }
 
@@ -241,8 +242,14 @@ pub enum LocalFileEvent {
     Created(Vec<PathBuf>),
     Modified(Vec<PathBuf>),
     Deleted(Vec<PathBuf>),
-    Renamed { old_paths: Vec<PathBuf>, new_paths: Vec<PathBuf> },
-    Moved { old_paths: Vec<PathBuf>, new_paths: Vec<PathBuf> },
+    Renamed {
+        old_paths: Vec<PathBuf>,
+        new_paths: Vec<PathBuf>,
+    },
+    Moved {
+        old_paths: Vec<PathBuf>,
+        new_paths: Vec<PathBuf>,
+    },
 }
 
 impl LocalFileEvent {
@@ -262,9 +269,18 @@ impl LocalFileEvent {
 pub enum RemoteFileEvent {
     Created(RemoteFileEntry),
     Modified(RemoteFileEntry),
-    Deleted { uri: String, name: String },
-    Renamed { old_uri: String, new_entry: RemoteFileEntry },
-    Moved { old_uri: String, new_entry: RemoteFileEntry },
+    Deleted {
+        uri: String,
+        name: String,
+    },
+    Renamed {
+        old_uri: String,
+        new_entry: RemoteFileEntry,
+    },
+    Moved {
+        old_uri: String,
+        new_entry: RemoteFileEntry,
+    },
 }
 
 // ===== 平台回调事件 (Windows CFApi) =====
@@ -471,7 +487,6 @@ impl WorkerStatus {
             WorkerStatus::Cancelled => "cancelled",
         }
     }
-
 }
 
 impl std::str::FromStr for WorkerStatus {
@@ -509,7 +524,6 @@ impl TaskItemStatus {
             TaskItemStatus::Skipped => "skipped",
         }
     }
-
 }
 
 impl std::str::FromStr for TaskItemStatus {
@@ -557,7 +571,6 @@ impl TaskActionType {
             TaskActionType::CreatePlaceholder => "create_placeholder",
         }
     }
-
 }
 
 impl std::str::FromStr for TaskActionType {

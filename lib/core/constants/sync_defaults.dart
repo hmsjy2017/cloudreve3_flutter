@@ -12,7 +12,7 @@ class SyncDefaults {
           Platform.environment['XDG_DOWNLOAD_DIR'] ?? ("${Platform.environment['HOME'] ?? ''}/Downloads");
       return '$xdgDownload/Cloudreve4';
     } else if (Platform.isAndroid) {
-      return ''; // Android 使用系统相册目录
+      return defaultAndroidLocalRoot;
     }
     return '';
   }
@@ -24,4 +24,9 @@ class SyncDefaults {
   static const int defaultBandwidthLimitKbps = 0;
   static const int defaultMaxWorkers = 0; // 0 = CPU 核心数
   static const String defaultLogLevel = 'info';
+
+  // ===== Android 相册同步专用 =====
+  static const String defaultAndroidLocalRoot = '/storage/emulated/0/DCIM';
+  static const String defaultAndroidRemoteRoot = 'cloudreve://my/DCIM';
+  static const String defaultAndroidSyncMode = 'album_upload';
 }

@@ -89,7 +89,8 @@ class SyncProvider extends ChangeNotifier {
           refreshToken: configMap['refreshToken'] as String? ?? '',
           localRoot: configMap['localRoot'] as String? ?? '',
           remoteRoot: configMap['remoteRoot'] as String? ?? 'cloudreve://my',
-          syncMode: configMap['syncMode'] as String? ?? 'full',
+          // 旧版 'album' 迁移为 'album_upload'
+          syncMode: (configMap['syncMode'] as String? ?? 'full') == 'album' ? 'album_upload' : (configMap['syncMode'] as String? ?? 'full'),
           conflictStrategy: configMap['conflictStrategy'] as String? ?? 'keep_both',
           wcfDeleteMode: configMap['wcfDeleteMode'] as String? ?? 'wcf_delete_local_only',
           maxConcurrentTransfers: configMap['maxConcurrentTransfers'] as int? ?? 3,
