@@ -55,6 +55,9 @@ class SyncProvider extends ChangeNotifier {
   int _cumMoved = 0;
   int _cumFailed = 0;
   int _cumConflicts = 0;
+  int _cumDeletedLocal = 0;
+  int _cumDeletedRemote = 0;
+  int _cumSkipped = 0;
 
   SyncState get state => _state;
   String? get errorMessage => _errorMessage;
@@ -82,8 +85,14 @@ class SyncProvider extends ChangeNotifier {
   int get cumFailed => _cumFailed;
   /// 累积冲突数
   int get cumConflicts => _cumConflicts;
+  /// 累积删本地数
+  int get cumDeletedLocal => _cumDeletedLocal;
+  /// 累积删远程数
+  int get cumDeletedRemote => _cumDeletedRemote;
+  /// 累积跳过数
+  int get cumSkipped => _cumSkipped;
   /// 累积总计操作数
-  int get cumTotal => _cumUploaded + _cumDownloaded + _cumRenamed + _cumMoved + _cumFailed + _cumConflicts;
+  int get cumTotal => _cumUploaded + _cumDownloaded + _cumRenamed + _cumMoved + _cumFailed + _cumConflicts + _cumDeletedLocal + _cumDeletedRemote + _cumSkipped;
 
   /// 从活跃任务聚合的已完成数
   int get activeCompletedCount {
@@ -168,7 +177,10 @@ class SyncProvider extends ChangeNotifier {
       _cumMoved = cumStats['moved'] ?? 0;
       _cumFailed = cumStats['failed'] ?? 0;
       _cumConflicts = cumStats['conflicts'] ?? 0;
-      AppLogger.i('恢复累积统计: 上传=$_cumUploaded, 下载=$_cumDownloaded, 失败=$_cumFailed, 冲突=$_cumConflicts');
+      _cumDeletedLocal = cumStats['deleted_local'] ?? 0;
+      _cumDeletedRemote = cumStats['deleted_remote'] ?? 0;
+      _cumSkipped = cumStats['skipped'] ?? 0;
+      AppLogger.i('恢复累积统计: 上传=$_cumUploaded, 下载=$_cumDownloaded, 失败=$_cumFailed, 冲突=$_cumConflicts, 删本地=$_cumDeletedLocal, 删远程=$_cumDeletedRemote, 跳过=$_cumSkipped');
     }
   }
 
@@ -202,6 +214,9 @@ class SyncProvider extends ChangeNotifier {
       'moved': _cumMoved,
       'failed': _cumFailed,
       'conflicts': _cumConflicts,
+      'deleted_local': _cumDeletedLocal,
+      'deleted_remote': _cumDeletedRemote,
+      'skipped': _cumSkipped,
     });
   }
 
@@ -216,8 +231,11 @@ class SyncProvider extends ChangeNotifier {
       _cumMoved = _max(_cumMoved, stats['moved'] ?? 0);
       _cumFailed = _max(_cumFailed, stats['failed'] ?? 0);
       _cumConflicts = _max(_cumConflicts, stats['conflicts'] ?? 0);
+      _cumDeletedLocal = _max(_cumDeletedLocal, stats['deleted_local'] ?? 0);
+      _cumDeletedRemote = _max(_cumDeletedRemote, stats['deleted_remote'] ?? 0);
+      _cumSkipped = _max(_cumSkipped, stats['skipped'] ?? 0);
       await _persistCumStats();
-      AppLogger.i('从 DB 校准累积统计: 上传=$_cumUploaded, 下载=$_cumDownloaded, 失败=$_cumFailed, 冲突=$_cumConflicts');
+      AppLogger.i('从 DB 校准累积统计: 上传=$_cumUploaded, 下载=$_cumDownloaded, 失败=$_cumFailed, 冲突=$_cumConflicts, 删本地=$_cumDeletedLocal, 删远程=$_cumDeletedRemote, 跳过=$_cumSkipped');
       notifyListeners();
     } catch (e) {
       AppLogger.e('从 DB 加载累积统计失败: $e');
@@ -448,16 +466,23 @@ class SyncProvider extends ChangeNotifier {
           final dbMoved = stats['moved'] ?? 0;
           final dbFailed = stats['failed'] ?? 0;
           final dbConflicts = stats['conflicts'] ?? 0;
+          final dbDeletedLocal = stats['deleted_local'] ?? 0;
+          final dbDeletedRemote = stats['deleted_remote'] ?? 0;
+          final dbSkipped = stats['skipped'] ?? 0;
           if (dbUploaded != _cumUploaded || dbDownloaded != _cumDownloaded ||
               dbRenamed != _cumRenamed || dbMoved != _cumMoved ||
-              dbFailed != _cumFailed || dbConflicts != _cumConflicts) {
-            AppLogger.d('[SyncProvider] DB 校准 cum: DB(u=$dbUploaded,d=$dbDownloaded,r=$dbRenamed,m=$dbMoved,f=$dbFailed,c=$dbConflicts) vs mem(u=$_cumUploaded,d=$_cumDownloaded,r=$_cumRenamed,m=$_cumMoved,f=$_cumFailed,c=$_cumConflicts)');
+              dbFailed != _cumFailed || dbConflicts != _cumConflicts ||
+              dbDeletedLocal != _cumDeletedLocal || dbDeletedRemote != _cumDeletedRemote ||
+              dbSkipped != _cumSkipped) {
             _cumUploaded = dbUploaded;
             _cumDownloaded = dbDownloaded;
             _cumRenamed = dbRenamed;
             _cumMoved = dbMoved;
             _cumFailed = dbFailed;
             _cumConflicts = dbConflicts;
+            _cumDeletedLocal = dbDeletedLocal;
+            _cumDeletedRemote = dbDeletedRemote;
+            _cumSkipped = dbSkipped;
             await _persistCumStats();
           }
         } catch (_) {}
@@ -611,11 +636,17 @@ class SyncProvider extends ChangeNotifier {
                 _cumMoved++;
               case 'conflict_resolve':
                 _cumConflicts++;
-              case 'delete_local' || 'delete_remote' || 'create_placeholder':
+              case 'delete_local':
+                _cumDeletedLocal++;
+              case 'delete_remote':
+                _cumDeletedRemote++;
+              case 'create_placeholder':
                 break;
               default:
                 AppLogger.w('[SyncProvider] TaskItemUpdated: 未知 action=$action');
             }
+          } else if (status == 'skipped') {
+            _cumSkipped++;
           } else if (status == 'failed') {
             _cumFailed++;
           }
@@ -753,6 +784,9 @@ class SyncProvider extends ChangeNotifier {
     _cumMoved = 0;
     _cumFailed = 0;
     _cumConflicts = 0;
+    _cumDeletedLocal = 0;
+    _cumDeletedRemote = 0;
+    _cumSkipped = 0;
     _persistCumStats();
     _activeTasks = [];
     _recentTasks = [];

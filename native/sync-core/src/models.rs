@@ -640,6 +640,9 @@ pub struct SyncCumStats {
     pub moved: u32,
     pub failed: u32,
     pub conflicts: u32,
+    pub deleted_local: u32,
+    pub deleted_remote: u32,
+    pub skipped: u32,
 }
 
 /// 任务项查询过滤器

@@ -5,6 +5,7 @@ import 'package:lucide_icons/lucide_icons.dart';
 
 import '../../../data/models/sync_task_model.dart';
 import '../../providers/sync_provider.dart';
+import '../../widgets/sync_stats_card.dart';
 import '../../widgets/toast_helper.dart';
 import 'sync_settings_page.dart';
 
@@ -55,7 +56,45 @@ class _SyncPageState extends State<SyncPage> {
           child: ListView(
             padding: const EdgeInsets.symmetric(vertical: 8),
             children: [
-              _buildStatusCard(sync, theme),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 5),
+                child: LayoutBuilder(
+                  builder: (context, constraints) {
+                    final isWide = constraints.maxWidth >= 800;
+                    final statsCard = SyncStatsCard(
+                      uploaded: sync.cumUploaded,
+                      downloaded: sync.cumDownloaded,
+                      renamed: sync.cumRenamed,
+                      moved: sync.cumMoved,
+                      conflicts: sync.cumConflicts,
+                      failed: sync.cumFailed,
+                      deletedLocal: sync.cumDeletedLocal,
+                      deletedRemote: sync.cumDeletedRemote,
+                      skipped: sync.cumSkipped,
+                    );
+
+                    if (isWide) {
+                      return IntrinsicHeight(
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            Expanded(child: _buildStatusHeaderCard(sync, theme)),
+                            const SizedBox(width: 8),
+                            Expanded(child: statsCard),
+                          ],
+                        ),
+                      );
+                    }
+                    return Column(
+                      children: [
+                        _buildStatusHeaderCard(sync, theme),
+                        const SizedBox(height: 8),
+                        statsCard,
+                      ],
+                    );
+                  },
+                ),
+              ),
               const SizedBox(height: 8),
               _buildActiveTasksSection(sync, theme),
               const SizedBox(height: 8),
@@ -73,165 +112,218 @@ class _SyncPageState extends State<SyncPage> {
     );
   }
 
-  Widget _buildStatusCard(SyncProvider sync, ThemeData theme) {
+  Widget _buildStatusHeaderCard(SyncProvider sync, ThemeData theme) {
     final isActive = sync.isActive;
     final isPaused = sync.isPaused;
     final hasError = sync.hasError;
 
     Color statusColor;
-    IconData statusIcon;
     String statusText;
 
     if (isActive) {
       statusColor = theme.colorScheme.primary;
-      statusIcon = Icons.sync;
       statusText = _syncModeLabel(sync);
     } else if (isPaused) {
       statusColor = Colors.orange;
-      statusIcon = Icons.pause_circle_outline;
       statusText = '已暂停';
     } else if (hasError) {
       statusColor = theme.colorScheme.error;
-      statusIcon = Icons.error_outline;
       statusText = '同步错误';
     } else if (sync.state == SyncState.stopped) {
       statusColor = theme.disabledColor;
-      statusIcon = Icons.stop_circle_outlined;
       statusText = '已停止';
     } else {
       statusColor = theme.disabledColor;
-      statusIcon = Icons.cloud_off;
       statusText = '未启动';
     }
 
-    return Card(
-      margin: const EdgeInsets.symmetric(horizontal: 5),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Icon(statusIcon, color: statusColor, size: 28),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        statusText,
-                        style: theme.textTheme.titleMedium?.copyWith(
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                      if (sync.errorMessage != null)
-                        Text(
-                          sync.errorMessage!,
-                          style: theme.textTheme.bodySmall?.copyWith(
-                            color: theme.colorScheme.error,
-                          ),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                    ],
-                  ),
-                ),
-                if (sync.activeWorkerCount > 0)
-                  Badge(
-                    label: Text('${sync.activeWorkerCount}'),
-                    child: Icon(LucideIcons.loader, color: statusColor, size: 24),
-                  ),
-              ],
-            ),
-            if (isActive || isPaused) ...[
-              const SizedBox(height: 12),
-              ClipRRect(
-                borderRadius: BorderRadius.circular(4),
-                child: LinearProgressIndicator(
-                  value: sync.totalFiles > 0 ? sync.progress : null,
-                  minHeight: 6,
-                ),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                sync.totalFiles > 0
-                    ? '${sync.syncedFiles} / ${sync.totalFiles} 文件'
-                    : sync.state == SyncState.continuous
-                        ? '持续同步中'
-                        : '正在同步...',
-                style: theme.textTheme.bodySmall,
-              ),
-            ],
-            if (sync.lastSummary != null) ...[
-              const SizedBox(height: 12),
-              Wrap(
-                spacing: 12,
-                runSpacing: 4,
-                children: [
-                  _summaryChip(theme, '上传', sync.lastSummary!.uploaded),
-                  _summaryChip(theme, '下载', sync.lastSummary!.downloaded),
-                  _summaryChip(theme, '冲突', sync.lastSummary!.conflicts),
-                  _summaryChip(theme, '失败', sync.lastSummary!.failed),
-                  _summaryChip(theme, '重命名', sync.lastSummary!.renamed),
-                  _summaryChip(theme, '移动', sync.lastSummary!.moved),
-                ],
-              ),
-            ],
-            const SizedBox(height: 12),
-            Row(
-              children: [
-                if (!sync.isActive && !sync.isPaused)
-                  Expanded(
-                    child: FilledButton.icon(
-                      onPressed: () => _navigateToSettings(),
-                      icon: const Icon(Icons.play_arrow, size: 18),
-                      label: const Text('开始同步'),
-                    ),
-                  ),
-                if (sync.isActive)
-                  Expanded(
-                    child: OutlinedButton.icon(
-                      onPressed: () => sync.pause(),
-                      icon: const Icon(Icons.pause, size: 18),
-                      label: const Text('暂停'),
-                    ),
-                  ),
-                if (sync.isPaused)
-                  Expanded(
-                    child: FilledButton.icon(
-                      onPressed: () => sync.resume(),
-                      icon: const Icon(Icons.play_arrow, size: 18),
-                      label: const Text('恢复'),
-                    ),
-                  ),
-                if (sync.isActive || sync.isPaused) ...[
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: OutlinedButton.icon(
-                      onPressed: () => _stopSync(sync),
-                      icon: const Icon(Icons.stop, size: 18),
-                      label: const Text('停止'),
-                      style: OutlinedButton.styleFrom(
-                        foregroundColor: theme.colorScheme.error,
-                      ),
-                    ),
-                  ),
-                ],
-              ],
-            ),
+    return Container(
+      width: double.infinity,
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            theme.colorScheme.primaryContainer.withValues(alpha: 0.3),
+            theme.colorScheme.tertiaryContainer.withValues(alpha: 0.3),
           ],
         ),
+        borderRadius: BorderRadius.circular(24),
+      ),
+      padding: const EdgeInsets.fromLTRB(24, 16, 24, 28),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Center(
+            child: Text(
+              statusText,
+              style: theme.textTheme.titleMedium?.copyWith(
+                fontWeight: FontWeight.w600,
+                color: statusColor,
+              ),
+            ),
+          ),
+          if (sync.errorMessage != null) ...[
+            const SizedBox(height: 4),
+            Center(
+              child: Text(
+                sync.errorMessage!,
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: theme.colorScheme.error,
+                ),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+          ],
+          const SizedBox(height: 16),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              SizedBox(
+                width: 96,
+                height: 96,
+                child: Stack(
+                  alignment: Alignment.center,
+                  children: [
+                    if (isActive)
+                      SizedBox(
+                        width: 96,
+                        height: 96,
+                        child: CircularProgressIndicator(
+                          value: sync.activeTotalCount > 0 ? sync.activeProgress : null,
+                          strokeWidth: 6,
+                          strokeCap: StrokeCap.round,
+                          backgroundColor: theme.colorScheme.surfaceContainerHighest,
+                          valueColor: AlwaysStoppedAnimation<Color>(statusColor),
+                        ),
+                      )
+                    else
+                      SizedBox(
+                        width: 96,
+                        height: 96,
+                        child: CircularProgressIndicator(
+                          value: 0,
+                          strokeWidth: 6,
+                          backgroundColor: theme.colorScheme.surfaceContainerHighest,
+                          valueColor: AlwaysStoppedAnimation<Color>(statusColor),
+                        ),
+                      ),
+                    Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        if (isActive && sync.activeTotalCount > 0)
+                          Text(
+                            '${(sync.activeProgress * 100).toInt()}%',
+                            style: theme.textTheme.titleMedium?.copyWith(
+                              fontWeight: FontWeight.bold,
+                              color: statusColor,
+                            ),
+                          ),
+                        Text(
+                          isActive
+                              ? (sync.state == SyncState.continuous ? '持续同步' : '同步中')
+                              : isPaused
+                                  ? '已暂停'
+                                  : hasError
+                                      ? '错误'
+                                      : '未启动',
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: theme.hintColor,
+                            fontSize: 11,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 24),
+              IntrinsicWidth(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _buildStatRow(Icons.file_upload_outlined, '${sync.cumUploaded}', '已上传', Colors.blue, theme),
+                    const SizedBox(height: 8),
+                    _buildStatRow(Icons.file_download_outlined, '${sync.cumDownloaded}', '已下载', Colors.green, theme),
+                    const SizedBox(height: 8),
+                    _buildStatRow(Icons.warning_amber_outlined, '${sync.cumConflicts}', '冲突', Colors.orange, theme),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          if (isActive && sync.currentFile != null) ...[
+            const SizedBox(height: 12),
+            Text(
+              sync.currentFile!,
+              style: theme.textTheme.bodySmall?.copyWith(color: theme.hintColor),
+              overflow: TextOverflow.ellipsis,
+              maxLines: 1,
+            ),
+          ],
+          if (isActive && sync.activeTotalCount > 0) ...[
+            const SizedBox(height: 8),
+            Text(
+              '${sync.activeCompletedCount} / ${sync.activeTotalCount} 文件',
+              style: theme.textTheme.bodySmall?.copyWith(color: theme.hintColor),
+            ),
+          ],
+          const SizedBox(height: 16),
+          Row(
+            children: [
+              if (!sync.isActive && !sync.isPaused)
+                Expanded(
+                  child: FilledButton.icon(
+                    onPressed: () => _navigateToSettings(),
+                    icon: const Icon(Icons.play_arrow, size: 18),
+                    label: const Text('开始同步'),
+                  ),
+                ),
+              if (sync.isActive)
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: () => sync.pause(),
+                    icon: const Icon(Icons.pause, size: 18),
+                    label: const Text('暂停'),
+                  ),
+                ),
+              if (sync.isPaused)
+                Expanded(
+                  child: FilledButton.icon(
+                    onPressed: () => sync.resume(),
+                    icon: const Icon(Icons.play_arrow, size: 18),
+                    label: const Text('恢复'),
+                  ),
+                ),
+              if (sync.isActive || sync.isPaused) ...[
+                const SizedBox(width: 8),
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: () => _stopSync(sync),
+                    icon: const Icon(Icons.stop, size: 18),
+                    label: const Text('停止'),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: theme.colorScheme.error,
+                    ),
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ],
       ),
     );
   }
 
-  Widget _summaryChip(ThemeData theme, String label, int value) {
+  Widget _buildStatRow(IconData icon, String value, String label, Color color, ThemeData theme) {
     return Row(
-      mainAxisSize: MainAxisSize.min,
       children: [
-        Text('$label:', style: theme.textTheme.bodySmall?.copyWith(color: theme.hintColor)),
-        Text(' $value', style: theme.textTheme.bodySmall?.copyWith(fontWeight: FontWeight.w600)),
+        Icon(icon, size: 16, color: color),
+        const SizedBox(width: 8),
+        Text(value, style: theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.bold)),
+        const SizedBox(width: 4),
+        Text(label, style: theme.textTheme.bodySmall?.copyWith(color: theme.hintColor)),
       ],
     );
   }

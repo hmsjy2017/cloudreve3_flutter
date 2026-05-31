@@ -32,10 +32,11 @@ class QuickFunctionsSection extends StatelessWidget {
       label: '文件同步',
       onTap: (ctx) {
         final nav = ctx.read<NavigationProvider>();
-        // 桌面端有同步 Tab（index 4），直接切换；移动端跳转同步详情页
+        // 桌面端或 Android 平板（宽屏）有同步 Tab，直接切换；手机端跳转同步详情页
         final isDesktop = defaultTargetPlatform != TargetPlatform.android &&
             defaultTargetPlatform != TargetPlatform.iOS;
-        if (isDesktop) {
+        final isWideScreen = MediaQuery.of(ctx).size.width >= 800;
+        if (isDesktop || isWideScreen) {
           nav.setIndex(4);
         } else {
           Navigator.of(ctx).pushNamed(RouteNames.syncStatus);

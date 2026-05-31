@@ -674,8 +674,8 @@ pub async fn get_sync_cum_stats() -> Result<SyncCumStatsFfi, SyncErrorFfi> {
     tracing::trace!("[FFI] get_sync_cum_stats ←");
     let engine = get_engine()?;
     let stats = engine.get_cum_stats().await.map_err(error_to_ffi)?;
-    tracing::trace!("[FFI] get_sync_cum_stats → uploaded={}, downloaded={}, renamed={}, moved={}, failed={}, conflicts={}",
-        stats.uploaded, stats.downloaded, stats.renamed, stats.moved, stats.failed, stats.conflicts);
+    tracing::trace!("[FFI] get_sync_cum_stats → uploaded={}, downloaded={}, renamed={}, moved={}, failed={}, conflicts={}, deleted_local={}, deleted_remote={}, skipped={}",
+        stats.uploaded, stats.downloaded, stats.renamed, stats.moved, stats.failed, stats.conflicts, stats.deleted_local, stats.deleted_remote, stats.skipped);
     Ok(SyncCumStatsFfi {
         uploaded: stats.uploaded,
         downloaded: stats.downloaded,
@@ -683,6 +683,9 @@ pub async fn get_sync_cum_stats() -> Result<SyncCumStatsFfi, SyncErrorFfi> {
         moved: stats.moved,
         failed: stats.failed,
         conflicts: stats.conflicts,
+        deleted_local: stats.deleted_local,
+        deleted_remote: stats.deleted_remote,
+        skipped: stats.skipped,
     })
 }
 

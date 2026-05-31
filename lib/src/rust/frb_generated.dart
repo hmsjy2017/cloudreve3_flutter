@@ -1025,8 +1025,8 @@ class RustSyncApiApiImpl extends RustSyncApiApiImplPlatform
   SyncCumStatsFfi dco_decode_sync_cum_stats_ffi(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     final arr = raw as List<dynamic>;
-    if (arr.length != 6)
-      throw Exception('unexpected arr length: expect 6 but see ${arr.length}');
+    if (arr.length != 9)
+      throw Exception('unexpected arr length: expect 9 but see ${arr.length}');
     return SyncCumStatsFfi(
       uploaded: dco_decode_u_32(arr[0]),
       downloaded: dco_decode_u_32(arr[1]),
@@ -1034,6 +1034,9 @@ class RustSyncApiApiImpl extends RustSyncApiApiImplPlatform
       moved: dco_decode_u_32(arr[3]),
       failed: dco_decode_u_32(arr[4]),
       conflicts: dco_decode_u_32(arr[5]),
+      deletedLocal: dco_decode_u_32(arr[6]),
+      deletedRemote: dco_decode_u_32(arr[7]),
+      skipped: dco_decode_u_32(arr[8]),
     );
   }
 
@@ -1437,6 +1440,9 @@ class RustSyncApiApiImpl extends RustSyncApiApiImplPlatform
     var var_moved = sse_decode_u_32(deserializer);
     var var_failed = sse_decode_u_32(deserializer);
     var var_conflicts = sse_decode_u_32(deserializer);
+    var var_deletedLocal = sse_decode_u_32(deserializer);
+    var var_deletedRemote = sse_decode_u_32(deserializer);
+    var var_skipped = sse_decode_u_32(deserializer);
     return SyncCumStatsFfi(
       uploaded: var_uploaded,
       downloaded: var_downloaded,
@@ -1444,6 +1450,9 @@ class RustSyncApiApiImpl extends RustSyncApiApiImplPlatform
       moved: var_moved,
       failed: var_failed,
       conflicts: var_conflicts,
+      deletedLocal: var_deletedLocal,
+      deletedRemote: var_deletedRemote,
+      skipped: var_skipped,
     );
   }
 
@@ -1909,6 +1918,9 @@ class RustSyncApiApiImpl extends RustSyncApiApiImplPlatform
     sse_encode_u_32(self.moved, serializer);
     sse_encode_u_32(self.failed, serializer);
     sse_encode_u_32(self.conflicts, serializer);
+    sse_encode_u_32(self.deletedLocal, serializer);
+    sse_encode_u_32(self.deletedRemote, serializer);
+    sse_encode_u_32(self.skipped, serializer);
   }
 
   @protected

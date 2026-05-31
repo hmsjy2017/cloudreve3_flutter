@@ -390,16 +390,16 @@ class _FilesPageState extends State<FilesPage> {
       ),
       Consumer<FileManagerProvider>(
         builder: (context, fileManager, child) {
-          return _buildSortMenu(fileManager);
-        },
-      ),
-      Consumer<FileManagerProvider>(
-        builder: (context, fileManager, child) {
           return IconButton(
             icon: Icon(fileManager.isLoading ? Icons.hourglass_empty : Icons.refresh),
             onPressed: () => fileManager.refreshFiles(),
             tooltip: '刷新',
           );
+        },
+      ),
+      Consumer<FileManagerProvider>(
+        builder: (context, fileManager, child) {
+          return _buildSortMenu(fileManager);
         },
       ),
       Consumer<FileManagerProvider>(

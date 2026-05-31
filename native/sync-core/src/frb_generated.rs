@@ -1147,6 +1147,9 @@ impl SseDecode for crate::api::ffi_types::SyncCumStatsFfi {
         let mut var_moved = <u32>::sse_decode(deserializer);
         let mut var_failed = <u32>::sse_decode(deserializer);
         let mut var_conflicts = <u32>::sse_decode(deserializer);
+        let mut var_deletedLocal = <u32>::sse_decode(deserializer);
+        let mut var_deletedRemote = <u32>::sse_decode(deserializer);
+        let mut var_skipped = <u32>::sse_decode(deserializer);
         return crate::api::ffi_types::SyncCumStatsFfi {
             uploaded: var_uploaded,
             downloaded: var_downloaded,
@@ -1154,6 +1157,9 @@ impl SseDecode for crate::api::ffi_types::SyncCumStatsFfi {
             moved: var_moved,
             failed: var_failed,
             conflicts: var_conflicts,
+            deleted_local: var_deletedLocal,
+            deleted_remote: var_deletedRemote,
+            skipped: var_skipped,
         };
     }
 }
@@ -1612,6 +1618,9 @@ impl flutter_rust_bridge::IntoDart for crate::api::ffi_types::SyncCumStatsFfi {
             self.moved.into_into_dart().into_dart(),
             self.failed.into_into_dart().into_dart(),
             self.conflicts.into_into_dart().into_dart(),
+            self.deleted_local.into_into_dart().into_dart(),
+            self.deleted_remote.into_into_dart().into_dart(),
+            self.skipped.into_into_dart().into_dart(),
         ]
         .into_dart()
     }
@@ -2067,6 +2076,9 @@ impl SseEncode for crate::api::ffi_types::SyncCumStatsFfi {
         <u32>::sse_encode(self.moved, serializer);
         <u32>::sse_encode(self.failed, serializer);
         <u32>::sse_encode(self.conflicts, serializer);
+        <u32>::sse_encode(self.deleted_local, serializer);
+        <u32>::sse_encode(self.deleted_remote, serializer);
+        <u32>::sse_encode(self.skipped, serializer);
     }
 }
 

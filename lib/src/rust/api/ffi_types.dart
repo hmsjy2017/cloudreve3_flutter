@@ -134,6 +134,9 @@ class SyncCumStatsFfi {
   final int moved;
   final int failed;
   final int conflicts;
+  final int deletedLocal;
+  final int deletedRemote;
+  final int skipped;
 
   const SyncCumStatsFfi({
     required this.uploaded,
@@ -142,6 +145,9 @@ class SyncCumStatsFfi {
     required this.moved,
     required this.failed,
     required this.conflicts,
+    required this.deletedLocal,
+    required this.deletedRemote,
+    required this.skipped,
   });
 
   @override
@@ -151,7 +157,10 @@ class SyncCumStatsFfi {
       renamed.hashCode ^
       moved.hashCode ^
       failed.hashCode ^
-      conflicts.hashCode;
+      conflicts.hashCode ^
+      deletedLocal.hashCode ^
+      deletedRemote.hashCode ^
+      skipped.hashCode;
 
   @override
   bool operator ==(Object other) =>
@@ -163,7 +172,10 @@ class SyncCumStatsFfi {
           renamed == other.renamed &&
           moved == other.moved &&
           failed == other.failed &&
-          conflicts == other.conflicts;
+          conflicts == other.conflicts &&
+          deletedLocal == other.deletedLocal &&
+          deletedRemote == other.deletedRemote &&
+          skipped == other.skipped;
 }
 
 @freezed

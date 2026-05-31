@@ -60,12 +60,18 @@ class _AppShellState extends State<AppShell> with GestureHandlerMixin, TickerPro
   late AnimationController _syncSpinController;
   String? _lastClipboardShareId;
   String? _lastUserId;
+  bool _cachedShowSyncTab = false;
 
-  /// 同步 tab 仅在桌面平台显示，Android 入口在"我的"页面
-  bool get _showSyncTab => defaultTargetPlatform != TargetPlatform.android && defaultTargetPlatform != TargetPlatform.iOS;
+  /// 同步 tab 在桌面平台显示，Android 平板（宽屏）也显示
+  static bool _shouldShowSyncTab(double screenWidth) {
+    if (defaultTargetPlatform != TargetPlatform.android && defaultTargetPlatform != TargetPlatform.iOS) {
+      return true;
+    }
+    return screenWidth >= 800;
+  }
 
   /// 根据平台返回页面列表（控制 IndexedStack 和 index 映射）
-  List<Widget> get _pages => _showSyncTab
+  List<Widget> _pages(bool showSyncTab) => showSyncTab
       ? [const OverviewPage(), const FilesPage(), const TasksPage(), const StorePage(), const SyncPage(), const ProfilePage()]
       : [const OverviewPage(), const FilesPage(), const TasksPage(), const StorePage(), const ProfilePage()];
 
@@ -108,7 +114,7 @@ class _AppShellState extends State<AppShell> with GestureHandlerMixin, TickerPro
     if (index == 0) {
       // 概览页
       userSetting.loadCapacity();
-    } else if (index == _pages.length - 1) {
+    } else if (index == _pages(_cachedShowSyncTab).length - 1) {
       // "我的"页面
       userSetting.loadCapacity();
     }
@@ -231,6 +237,7 @@ class _AppShellState extends State<AppShell> with GestureHandlerMixin, TickerPro
   Widget build(BuildContext context) {
     final screenWidth = MediaQuery.of(context).size.width;
     final isDesktop = screenWidth >= 1000;
+    _cachedShowSyncTab = _shouldShowSyncTab(screenWidth);
 
     return PopScope(
       canPop: false,
@@ -262,7 +269,7 @@ class _AppShellState extends State<AppShell> with GestureHandlerMixin, TickerPro
 
   Widget _buildPageContent(BuildContext context, int currentIndex) {
     _visitedPageIndexes.add(currentIndex);
-    final pages = _pages;
+    final pages = _pages(_cachedShowSyncTab);
 
     return RepaintBoundary(
       child: IndexedStack(
@@ -356,7 +363,7 @@ class _AppShellState extends State<AppShell> with GestureHandlerMixin, TickerPro
                   selectedIcon: Icon(Icons.storefront),
                   label: '商店',
                 ),
-                if (_showSyncTab)
+                if (_cachedShowSyncTab)
                   NavigationDestination(
                     icon: Consumer<SyncProvider>(
                       builder: (context, sync, _) {
@@ -408,11 +415,11 @@ class _AppShellState extends State<AppShell> with GestureHandlerMixin, TickerPro
             leading: Padding(
               padding: const EdgeInsets.symmetric(vertical: 16),
               child: GestureDetector(
-                onTap: () => navProvider.setIndex(_pages.length - 1),
+                onTap: () => navProvider.setIndex(_pages(_cachedShowSyncTab).length - 1),
                 child: Container(
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
-                    border: navProvider.currentIndex == _pages.length - 1
+                    border: navProvider.currentIndex == _pages(_cachedShowSyncTab).length - 1
                         ? Border.all(
                             color: theme.colorScheme.primary,
                             width: 2.5,
@@ -458,7 +465,7 @@ class _AppShellState extends State<AppShell> with GestureHandlerMixin, TickerPro
                 selectedIcon: Icon(Icons.storefront),
                 label: Text('商店'),
               ),
-              if (_showSyncTab)
+              if (_cachedShowSyncTab)
                 NavigationRailDestination(
                   icon: Consumer<SyncProvider>(
                     builder: (context, sync, _) {

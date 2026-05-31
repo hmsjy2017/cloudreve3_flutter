@@ -200,7 +200,7 @@ class SyncService {
   Future<Map<String, int>> getCumStats() async {
     AppLogger.t('[FFI] → getSyncCumStats');
     final stats = await ffi.getSyncCumStats();
-    AppLogger.t('[FFI] ← getSyncCumStats: uploaded=${stats.uploaded}, downloaded=${stats.downloaded}, failed=${stats.failed}, conflicts=${stats.conflicts}');
+    AppLogger.t('[FFI] ← getSyncCumStats: uploaded=${stats.uploaded}, downloaded=${stats.downloaded}, failed=${stats.failed}, conflicts=${stats.conflicts}, deletedLocal=${stats.deletedLocal}, deletedRemote=${stats.deletedRemote}, skipped=${stats.skipped}');
     return {
       'uploaded': stats.uploaded,
       'downloaded': stats.downloaded,
@@ -208,6 +208,9 @@ class SyncService {
       'moved': stats.moved,
       'failed': stats.failed,
       'conflicts': stats.conflicts,
+      'deleted_local': stats.deletedLocal,
+      'deleted_remote': stats.deletedRemote,
+      'skipped': stats.skipped,
     };
   }
 

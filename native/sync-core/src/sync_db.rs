@@ -927,7 +927,22 @@ impl SyncDb {
                 [], |r| r.get(0),
             ).unwrap_or(0);
 
-            Ok(SyncCumStats { uploaded, downloaded, renamed, moved, failed, conflicts })
+            let deleted_local: u32 = conn.query_row(
+                "SELECT COUNT(*) FROM sync_task_item WHERE action_type = 'delete_local' AND status = 'completed'",
+                [], |r| r.get(0),
+            ).unwrap_or(0);
+
+            let deleted_remote: u32 = conn.query_row(
+                "SELECT COUNT(*) FROM sync_task_item WHERE action_type = 'delete_remote' AND status = 'completed'",
+                [], |r| r.get(0),
+            ).unwrap_or(0);
+
+            let skipped: u32 = conn.query_row(
+                "SELECT COUNT(*) FROM sync_task_item WHERE status = 'skipped'",
+                [], |r| r.get(0),
+            ).unwrap_or(0);
+
+            Ok(SyncCumStats { uploaded, downloaded, renamed, moved, failed, conflicts, deleted_local, deleted_remote, skipped })
         }).await??;
         Ok(result)
     }
