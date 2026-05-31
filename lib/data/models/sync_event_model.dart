@@ -50,6 +50,81 @@ class SyncInitialSyncComplete extends SyncEventModel {
   SyncInitialSyncComplete(this.summary);
 }
 
+class SyncWorkerCompleted extends SyncEventModel {
+  final String taskId;
+  final int uploaded;
+  final int downloaded;
+  final int renamed;
+  final int moved;
+  final int failed;
+  final int durationMs;
+  SyncWorkerCompleted({
+    required this.taskId,
+    required this.uploaded,
+    required this.downloaded,
+    required this.renamed,
+    required this.moved,
+    required this.failed,
+    required this.durationMs,
+  });
+}
+
+class SyncWorkerFailed extends SyncEventModel {
+  final String taskId;
+  final String message;
+  SyncWorkerFailed({required this.taskId, required this.message});
+}
+
+class SyncTaskItemUpdated extends SyncEventModel {
+  final String taskId;
+  final String relativePath;
+  final String action;
+  final String status;
+  SyncTaskItemUpdated({
+    required this.taskId,
+    required this.relativePath,
+    required this.action,
+    required this.status,
+  });
+}
+
+/// 将 FFI 事件转换为 Dart 模型
+SyncEventModel? syncEventFromFfi(ffi.SyncEventFfi event) {
+  return event.when(
+    stateChanged: (newState) => SyncStateChanged(newState),
+    progress: (synced, total, currentFile) =>
+        SyncProgress(synced.toInt(), total.toInt(), currentFile),
+    fileUploaded: (localPath, remoteUri) =>
+        SyncFileUploaded(localPath, remoteUri),
+    fileDownloaded: (localPath, remoteUri) =>
+        SyncFileDownloaded(localPath, remoteUri),
+    conflictDetected: (localPath, conflictType) =>
+        SyncConflictDetected(localPath, conflictType),
+    error: (message, recoverable) => SyncError(message, recoverable),
+    tokenExpired: () => SyncTokenExpired(),
+    diskSpaceWarning: (availableMb) =>
+        SyncDiskSpaceWarning(availableMb.toInt()),
+    initialSyncComplete: (summary) =>
+        SyncInitialSyncComplete(SyncSummaryModel.fromFfi(summary)),
+    workerStarted: (taskId, trigger, uploadCount, downloadCount) => null,
+    workerCompleted: (taskId, uploaded, downloaded, renamed, moved, failed,
+            durationMs) =>
+        SyncWorkerCompleted(
+          taskId: taskId,
+          uploaded: uploaded,
+          downloaded: downloaded,
+          renamed: renamed,
+          moved: moved,
+          failed: failed,
+          durationMs: durationMs.toInt(),
+        ),
+    workerFailed: (taskId, message) =>
+        SyncWorkerFailed(taskId: taskId, message: message),
+    taskItemUpdated: (taskId, relativePath, action, status) =>
+        SyncTaskItemUpdated(taskId: taskId, relativePath: relativePath, action: action, status: status),
+  );
+}
+
 class SyncSummaryModel {
   final int uploaded;
   final int downloaded;

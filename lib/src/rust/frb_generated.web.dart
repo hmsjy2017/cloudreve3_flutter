@@ -69,6 +69,9 @@ abstract class RustSyncApiApiImplPlatform extends BaseApiImpl<RustSyncApiWire> {
   SyncConfigFfi dco_decode_sync_config_ffi(dynamic raw);
 
   @protected
+  SyncCumStatsFfi dco_decode_sync_cum_stats_ffi(dynamic raw);
+
+  @protected
   SyncErrorFfi dco_decode_sync_error_ffi(dynamic raw);
 
   @protected
@@ -157,6 +160,9 @@ abstract class RustSyncApiApiImplPlatform extends BaseApiImpl<RustSyncApiWire> {
 
   @protected
   SyncConfigFfi sse_decode_sync_config_ffi(SseDeserializer deserializer);
+
+  @protected
+  SyncCumStatsFfi sse_decode_sync_cum_stats_ffi(SseDeserializer deserializer);
 
   @protected
   SyncErrorFfi sse_decode_sync_error_ffi(SseDeserializer deserializer);
@@ -267,6 +273,12 @@ abstract class RustSyncApiApiImplPlatform extends BaseApiImpl<RustSyncApiWire> {
 
   @protected
   void sse_encode_sync_config_ffi(SyncConfigFfi self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_sync_cum_stats_ffi(
+    SyncCumStatsFfi self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_sync_error_ffi(SyncErrorFfi self, SseSerializer serializer);

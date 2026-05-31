@@ -48,6 +48,14 @@ class SyncProvider extends ChangeNotifier {
   // 持久化的同步配置
   SyncConfigModel? _persistedConfig;
 
+  // 累积统计（跨所有 Worker 实时汇总，不仅仅是 lastSummary）
+  int _cumUploaded = 0;
+  int _cumDownloaded = 0;
+  int _cumRenamed = 0;
+  int _cumMoved = 0;
+  int _cumFailed = 0;
+  int _cumConflicts = 0;
+
   SyncState get state => _state;
   String? get errorMessage => _errorMessage;
   SyncSummaryModel? get lastSummary => _lastSummary;
@@ -61,6 +69,46 @@ class SyncProvider extends ChangeNotifier {
   List<SyncTaskModel> get activeTasks => _activeTasks;
   List<SyncTaskModel> get recentTasks => _recentTasks;
   int get activeWorkerCount => _activeWorkerCount;
+
+  /// 累积上传数（所有 Worker 汇总）
+  int get cumUploaded => _cumUploaded;
+  /// 累积下载数（所有 Worker 汇总）
+  int get cumDownloaded => _cumDownloaded;
+  /// 累积重命名数
+  int get cumRenamed => _cumRenamed;
+  /// 累积移动数
+  int get cumMoved => _cumMoved;
+  /// 累积失败数
+  int get cumFailed => _cumFailed;
+  /// 累积冲突数
+  int get cumConflicts => _cumConflicts;
+  /// 累积总计操作数
+  int get cumTotal => _cumUploaded + _cumDownloaded + _cumRenamed + _cumMoved + _cumFailed + _cumConflicts;
+
+  /// 从活跃任务聚合的已完成数
+  int get activeCompletedCount {
+    int sum = 0;
+    for (final t in _activeTasks) {
+      sum += t.completedCount;
+    }
+    return sum;
+  }
+
+  /// 从活跃任务聚合的总数
+  int get activeTotalCount {
+    int sum = 0;
+    for (final t in _activeTasks) {
+      sum += t.totalCount;
+    }
+    return sum;
+  }
+
+  /// 从活跃任务聚合的进度（0.0~1.0）
+  double get activeProgress {
+    final total = activeTotalCount;
+    if (total == 0) return 0.0;
+    return activeCompletedCount / total;
+  }
 
   bool get isActive =>
       _state == SyncState.initializing ||
@@ -110,6 +158,18 @@ class SyncProvider extends ChangeNotifier {
     if (savedState != null && savedState != 'idle' && savedState != 'stopped') {
       AppLogger.i('恢复同步状态: $savedState');
     }
+
+    // 恢复累积统计
+    final cumStats = await StorageService.instance.getSyncCumStats();
+    if (cumStats != null) {
+      _cumUploaded = cumStats['uploaded'] ?? 0;
+      _cumDownloaded = cumStats['downloaded'] ?? 0;
+      _cumRenamed = cumStats['renamed'] ?? 0;
+      _cumMoved = cumStats['moved'] ?? 0;
+      _cumFailed = cumStats['failed'] ?? 0;
+      _cumConflicts = cumStats['conflicts'] ?? 0;
+      AppLogger.i('恢复累积统计: 上传=$_cumUploaded, 下载=$_cumDownloaded, 失败=$_cumFailed, 冲突=$_cumConflicts');
+    }
   }
 
   /// 保存同步配置到持久化存储
@@ -133,6 +193,39 @@ class SyncProvider extends ChangeNotifier {
     });
   }
 
+  /// 持久化累积统计
+  Future<void> _persistCumStats() async {
+    await StorageService.instance.setSyncCumStats({
+      'uploaded': _cumUploaded,
+      'downloaded': _cumDownloaded,
+      'renamed': _cumRenamed,
+      'moved': _cumMoved,
+      'failed': _cumFailed,
+      'conflicts': _cumConflicts,
+    });
+  }
+
+  /// 从 Rust DB 加载累积统计（权威数据源）
+  /// 取 DB 和内存中的较大值，避免覆盖事件已递增的增量
+  Future<void> _loadCumStatsFromDb() async {
+    try {
+      final stats = await SyncService.instance.getCumStats();
+      _cumUploaded = _max(_cumUploaded, stats['uploaded'] ?? 0);
+      _cumDownloaded = _max(_cumDownloaded, stats['downloaded'] ?? 0);
+      _cumRenamed = _max(_cumRenamed, stats['renamed'] ?? 0);
+      _cumMoved = _max(_cumMoved, stats['moved'] ?? 0);
+      _cumFailed = _max(_cumFailed, stats['failed'] ?? 0);
+      _cumConflicts = _max(_cumConflicts, stats['conflicts'] ?? 0);
+      await _persistCumStats();
+      AppLogger.i('从 DB 校准累积统计: 上传=$_cumUploaded, 下载=$_cumDownloaded, 失败=$_cumFailed, 冲突=$_cumConflicts');
+      notifyListeners();
+    } catch (e) {
+      AppLogger.e('从 DB 加载累积统计失败: $e');
+    }
+  }
+
+  static int _max(int a, int b) => a > b ? a : b;
+
   /// 持久化同步状态
   Future<void> _persistState(SyncState state) async {
     final stateStr = switch (state) {
@@ -154,6 +247,7 @@ class SyncProvider extends ChangeNotifier {
     _syncedFiles = 0;
     _totalFiles = 0;
     _currentFile = null;
+    // 不再清零 cum — 从 DB 加载权威数据
     notifyListeners();
 
     // 确保 clientId 已注入（Dart 生成、持久化、全层共享）
@@ -167,6 +261,10 @@ class SyncProvider extends ChangeNotifier {
     try {
       await SyncService.instance.init(configWithClientId);
       _engineInitialized = true;
+
+      // 从 DB 加载累积统计（权威数据源，替代 SharedPreferences）
+      await _loadCumStatsFromDb();
+
       _subscribeEvents();
 
       _state = SyncState.initialSync;
@@ -179,6 +277,9 @@ class SyncProvider extends ChangeNotifier {
       // 启动初始同步（后台运行）
       SyncService.instance.startInitialSync().then((summary) async {
         _lastSummary = summary;
+        // 不再覆盖 cum — TaskItemUpdated 事件已实时递增
+        // 初始同步完成后从 DB 重新校准（避免事件遗漏）
+        await _loadCumStatsFromDb();
         _state = SyncState.continuous;
         await _persistState(SyncState.continuous);
         AppLogger.i('初始同步完成');
@@ -284,6 +385,7 @@ class SyncProvider extends ChangeNotifier {
   }
 
   int _pollErrorCount = 0;
+  int _pollCount = 0;
 
   Future<void> _pollStatus() async {
     try {
@@ -334,6 +436,32 @@ class SyncProvider extends ChangeNotifier {
           notifyListeners();
         }
       } catch (_) {}
+
+      // 每 5 次轮询从 DB 校准累积统计（兜底，防止事件丢失导致 UI 不同步）
+      _pollCount++;
+      if (_pollCount % 5 == 0 && _engineInitialized) {
+        try {
+          final stats = await SyncService.instance.getCumStats();
+          final dbUploaded = stats['uploaded'] ?? 0;
+          final dbDownloaded = stats['downloaded'] ?? 0;
+          final dbRenamed = stats['renamed'] ?? 0;
+          final dbMoved = stats['moved'] ?? 0;
+          final dbFailed = stats['failed'] ?? 0;
+          final dbConflicts = stats['conflicts'] ?? 0;
+          if (dbUploaded != _cumUploaded || dbDownloaded != _cumDownloaded ||
+              dbRenamed != _cumRenamed || dbMoved != _cumMoved ||
+              dbFailed != _cumFailed || dbConflicts != _cumConflicts) {
+            AppLogger.d('[SyncProvider] DB 校准 cum: DB(u=$dbUploaded,d=$dbDownloaded,r=$dbRenamed,m=$dbMoved,f=$dbFailed,c=$dbConflicts) vs mem(u=$_cumUploaded,d=$_cumDownloaded,r=$_cumRenamed,m=$_cumMoved,f=$_cumFailed,c=$_cumConflicts)');
+            _cumUploaded = dbUploaded;
+            _cumDownloaded = dbDownloaded;
+            _cumRenamed = dbRenamed;
+            _cumMoved = dbMoved;
+            _cumFailed = dbFailed;
+            _cumConflicts = dbConflicts;
+            await _persistCumStats();
+          }
+        } catch (_) {}
+      }
 
       notifyListeners();
       _adjustPollInterval();
@@ -440,11 +568,60 @@ class SyncProvider extends ChangeNotifier {
           _lastSummary = summary;
           _state = SyncState.continuous;
           await _persistState(SyncState.continuous);
-          SyncService.instance.startContinuousSync();
+          // 不再在此启动 continuous sync — .then() 回调已启动，避免重复
         case SyncDiskSpaceWarning():
           AppLogger.w('磁盘空间不足');
+        case SyncWorkerCompleted():
+          break;
+        case SyncWorkerFailed():
+          break;
+        case SyncTaskItemUpdated(:final taskId, :final action, :final status):
+          AppLogger.d('[SyncProvider] TaskItemUpdated: taskId=$taskId, action=$action, status=$status');
+          // 实时更新活跃任务的 completedCount/failedCount
+          final idx = _activeTasks.indexWhere((t) => t.id == taskId);
+          if (idx >= 0) {
+            final old = _activeTasks[idx];
+            if (status == 'completed') {
+              _activeTasks[idx] = SyncTaskModel(
+                id: old.id, trigger: old.trigger, totalCount: old.totalCount,
+                completedCount: old.completedCount + 1, failedCount: old.failedCount,
+                status: old.status, createdAt: old.createdAt, updatedAt: old.updatedAt,
+                finishedAt: old.finishedAt,
+              );
+            } else if (status == 'failed') {
+              _activeTasks[idx] = SyncTaskModel(
+                id: old.id, trigger: old.trigger, totalCount: old.totalCount,
+                completedCount: old.completedCount, failedCount: old.failedCount + 1,
+                status: old.status, createdAt: old.createdAt, updatedAt: old.updatedAt,
+                finishedAt: old.finishedAt,
+              );
+            }
+          }
+          // 实时递增累积计数器
+          if (status == 'completed') {
+            switch (action) {
+              case 'upload':
+                _cumUploaded++;
+                AppLogger.d('[SyncProvider] cumUploaded=$_cumUploaded');
+              case 'download':
+                _cumDownloaded++;
+              case 'rename':
+                _cumRenamed++;
+              case 'move':
+                _cumMoved++;
+              case 'conflict_resolve':
+                _cumConflicts++;
+              case 'delete_local' || 'delete_remote' || 'create_placeholder':
+                break;
+              default:
+                AppLogger.w('[SyncProvider] TaskItemUpdated: 未知 action=$action');
+            }
+          } else if (status == 'failed') {
+            _cumFailed++;
+          }
       }
       notifyListeners();
+      _persistCumStats();
     });
   }
 
@@ -555,11 +732,11 @@ class SyncProvider extends ChangeNotifier {
     _adjustPollInterval();
   }
 
-  /// 重置同步：停止任务 → 清空 DB → 清空本地目录 → 回到初始状态
-  Future<void> resetSync() async {
+  /// 重置同步：停止任务 → 清空 DB → (可选)清空本地目录 → 回到初始状态
+  Future<void> resetSync({bool deleteLocalFiles = true}) async {
     // 引擎未初始化时仅清空本地状态
     try {
-      await SyncService.instance.resetSync();
+      await SyncService.instance.resetSync(deleteLocalFiles: deleteLocalFiles);
     } catch (_) {}
     _state = SyncState.idle;
     _errorMessage = null;
@@ -570,6 +747,13 @@ class SyncProvider extends ChangeNotifier {
     _downloadingCount = 0;
     _currentFile = null;
     _lastSummary = null;
+    _cumUploaded = 0;
+    _cumDownloaded = 0;
+    _cumRenamed = 0;
+    _cumMoved = 0;
+    _cumFailed = 0;
+    _cumConflicts = 0;
+    _persistCumStats();
     _activeTasks = [];
     _recentTasks = [];
     _activeWorkerCount = 0;

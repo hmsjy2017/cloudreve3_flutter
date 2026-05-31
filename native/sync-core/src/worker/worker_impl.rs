@@ -79,6 +79,24 @@ impl Worker {
         }
     }
 
+    /// 发射任务项状态变更事件（供 UI 实时更新进度）
+    async fn emit_item_updated(
+        &self,
+        task_id: &str,
+        relative_path: &str,
+        action: &str,
+        status: &str,
+    ) {
+        self.event_sink
+            .emit(crate::api::ffi_types::SyncEventFfi::TaskItemUpdated {
+                task_id: task_id.to_string(),
+                relative_path: relative_path.to_string(),
+                action: action.to_string(),
+                status: status.to_string(),
+            })
+            .await;
+    }
+
     /// 执行 Worker 任务（编排器，调用各步骤方法）
     pub async fn run(mut self) -> Result<SyncSummary> {
         let start = Instant::now();
@@ -113,9 +131,12 @@ impl Worker {
         self.step_rename_remote(&mut summary).await;
         self.step_move_remote(&mut summary).await;
         self.step_scan_new_dirs(&mut summary).await;
-        self.step_resolve_conflicts(&mut summary, &transfer_semaphore).await;
-        self.step_execute_uploads(&mut summary, &transfer_semaphore).await;
-        self.step_execute_downloads_or_placeholders(&mut summary, &transfer_semaphore).await;
+        self.step_resolve_conflicts(&mut summary, &transfer_semaphore)
+            .await;
+        self.step_execute_uploads(&mut summary, &transfer_semaphore)
+            .await;
+        self.step_execute_downloads_or_placeholders(&mut summary, &transfer_semaphore)
+            .await;
         self.step_delete_local(&mut summary).await;
         self.step_rename_local(&mut summary).await;
         self.step_move_local(&mut summary).await;
@@ -172,7 +193,10 @@ impl Worker {
 
     /// 1. 创建远程目录结构（UploadOnly / Full / MirrorWcf）
     async fn step_create_remote_dirs(&self) {
-        if matches!(self.config.sync_mode, SyncMode::DownloadOnly | SyncMode::AlbumDownload) {
+        if matches!(
+            self.config.sync_mode,
+            SyncMode::DownloadOnly | SyncMode::AlbumDownload
+        ) {
             return;
         }
         let tid = &self.task_id;
@@ -197,7 +221,10 @@ impl Worker {
 
     /// 2. 创建本地目录结构（DownloadOnly / Full / MirrorWcf）
     async fn step_create_local_dirs(&self) {
-        if matches!(self.config.sync_mode, SyncMode::UploadOnly | SyncMode::AlbumUpload) {
+        if matches!(
+            self.config.sync_mode,
+            SyncMode::UploadOnly | SyncMode::AlbumUpload
+        ) {
             return;
         }
         let tid = &self.task_id;
@@ -214,7 +241,10 @@ impl Worker {
 
     /// 2.1 执行远程重命名（UploadOnly / Full / MirrorWcf / AlbumUpload）
     async fn step_rename_remote(&self, summary: &mut SyncSummary) {
-        if matches!(self.config.sync_mode, SyncMode::DownloadOnly | SyncMode::AlbumDownload) {
+        if matches!(
+            self.config.sync_mode,
+            SyncMode::DownloadOnly | SyncMode::AlbumDownload
+        ) {
             return;
         }
         let tid = &self.task_id;
@@ -242,6 +272,8 @@ impl Worker {
                     );
                     summary.renamed += 1;
                     let _ = self.db.increment_task_completed(tid).await;
+                    self.emit_item_updated(tid, &rename.new_relative_path, "rename", "completed")
+                        .await;
                     let new_remote_uri = {
                         let uri = &rename.remote_uri;
                         let last_slash = uri.trim_end_matches('/').rfind('/').unwrap_or(0);
@@ -293,7 +325,10 @@ impl Worker {
 
     /// 2.2 执行远程移动（本地触发）
     async fn step_move_remote(&self, summary: &mut SyncSummary) {
-        if matches!(self.config.sync_mode, SyncMode::DownloadOnly | SyncMode::AlbumDownload) {
+        if matches!(
+            self.config.sync_mode,
+            SyncMode::DownloadOnly | SyncMode::AlbumDownload
+        ) {
             return;
         }
         let tid = &self.task_id;
@@ -318,6 +353,8 @@ impl Worker {
                     );
                     summary.moved += 1;
                     let _ = self.db.increment_task_completed(tid).await;
+                    self.emit_item_updated(tid, &mov.new_relative_path, "move", "completed")
+                        .await;
                     let _ = self
                         .db
                         .update_file_mapping_path(
@@ -421,8 +458,7 @@ impl Worker {
                             self.plan.mkdirs_remote.push(full_relative.clone());
                         } else {
                             let mut local_entry = entry.clone();
-                            local_entry.relative_path =
-                                std::path::PathBuf::from(&full_relative);
+                            local_entry.relative_path = std::path::PathBuf::from(&full_relative);
                             self.plan.uploads.push(SyncAction {
                                 relative_path: full_relative,
                                 local_entry: Some(local_entry),
@@ -491,7 +527,11 @@ impl Worker {
     }
 
     /// 3. 处理冲突（串行）
-    async fn step_resolve_conflicts(&self, summary: &mut SyncSummary, transfer_semaphore: &Arc<Semaphore>) {
+    async fn step_resolve_conflicts(
+        &self,
+        summary: &mut SyncSummary,
+        transfer_semaphore: &Arc<Semaphore>,
+    ) {
         let tid = &self.task_id;
         let root_id = &self.config.sync_root_id;
 
@@ -702,6 +742,13 @@ impl Worker {
             };
             if conflict_ok {
                 let _ = self.db.increment_task_completed(tid).await;
+                self.emit_item_updated(
+                    tid,
+                    &conflict.relative_path,
+                    "conflict_resolve",
+                    "completed",
+                )
+                .await;
             }
             let _ = self
                 .db
@@ -717,8 +764,15 @@ impl Worker {
     }
 
     /// 4. 并发上传（UploadOnly / Full / MirrorWcf / AlbumUpload）
-    async fn step_execute_uploads(&self, summary: &mut SyncSummary, transfer_semaphore: &Arc<Semaphore>) {
-        if matches!(self.config.sync_mode, SyncMode::DownloadOnly | SyncMode::AlbumDownload) {
+    async fn step_execute_uploads(
+        &self,
+        summary: &mut SyncSummary,
+        transfer_semaphore: &Arc<Semaphore>,
+    ) {
+        if matches!(
+            self.config.sync_mode,
+            SyncMode::DownloadOnly | SyncMode::AlbumDownload
+        ) {
             return;
         }
         let tid = &self.task_id;
@@ -762,6 +816,8 @@ impl Worker {
                 Ok(Ok(_)) => {
                     summary.uploaded += 1;
                     let _ = self.db.increment_task_completed(tid).await;
+                    self.emit_item_updated(tid, &rel_path, "upload", "completed")
+                        .await;
                     let _ = self
                         .db
                         .update_task_item_status_by_path(
@@ -777,6 +833,8 @@ impl Worker {
                     tracing::error!("[{}] 上传失败: {}: {}", tid, rel_path, e);
                     summary.failed += 1;
                     let _ = self.db.increment_task_failed(tid).await;
+                    self.emit_item_updated(tid, &rel_path, "upload", "failed")
+                        .await;
                     let _ = self
                         .db
                         .update_task_item_status_by_path(
@@ -794,6 +852,8 @@ impl Worker {
                     tracing::error!("[{}] 上传任务异常: {}: {}", tid, rel_path, e);
                     summary.failed += 1;
                     let _ = self.db.increment_task_failed(tid).await;
+                    self.emit_item_updated(tid, &rel_path, "upload", "failed")
+                        .await;
                     let _ = self
                         .db
                         .update_task_item_status_by_path(
@@ -812,7 +872,11 @@ impl Worker {
     }
 
     /// 5. 并发下载（DownloadOnly / Full）或 创建占位符（MirrorWcf）
-    async fn step_execute_downloads_or_placeholders(&self, summary: &mut SyncSummary, transfer_semaphore: &Arc<Semaphore>) {
+    async fn step_execute_downloads_or_placeholders(
+        &self,
+        summary: &mut SyncSummary,
+        transfer_semaphore: &Arc<Semaphore>,
+    ) {
         let tid = &self.task_id;
         let root_id = self.config.sync_root_id.clone();
 
@@ -910,6 +974,8 @@ impl Worker {
                 }
 
                 let _ = self.db.increment_task_completed(tid).await;
+                self.emit_item_updated(tid, relative, "create_placeholder", "completed")
+                    .await;
                 let _ = self
                     .db
                     .update_task_item_status_by_path(
@@ -921,7 +987,10 @@ impl Worker {
                     )
                     .await;
             }
-        } else if !matches!(self.config.sync_mode, SyncMode::UploadOnly | SyncMode::AlbumUpload) {
+        } else if !matches!(
+            self.config.sync_mode,
+            SyncMode::UploadOnly | SyncMode::AlbumUpload
+        ) {
             let mut download_handles: Vec<(String, tokio::task::JoinHandle<Result<()>>)> =
                 Vec::new();
             for action in &self.plan.downloads {
@@ -959,6 +1028,8 @@ impl Worker {
                     Ok(Ok(_)) => {
                         summary.downloaded += 1;
                         let _ = self.db.increment_task_completed(tid).await;
+                        self.emit_item_updated(tid, &rel_path, "download", "completed")
+                            .await;
                         let _ = self
                             .db
                             .update_task_item_status_by_path(
@@ -974,6 +1045,8 @@ impl Worker {
                         tracing::error!("[{}] 下载失败: {}: {}", tid, rel_path, e);
                         summary.failed += 1;
                         let _ = self.db.increment_task_failed(tid).await;
+                        self.emit_item_updated(tid, &rel_path, "download", "failed")
+                            .await;
                         let _ = self
                             .db
                             .update_task_item_status_by_path(
@@ -989,6 +1062,8 @@ impl Worker {
                         tracing::error!("[{}] 下载任务异常: {}: {}", tid, rel_path, e);
                         summary.failed += 1;
                         let _ = self.db.increment_task_failed(tid).await;
+                        self.emit_item_updated(tid, &rel_path, "download", "failed")
+                            .await;
                         let _ = self
                             .db
                             .update_task_item_status_by_path(
@@ -1008,7 +1083,10 @@ impl Worker {
     /// 6. 删除本地文件（DownloadOnly / Full / MirrorWcf — 远程删除触发的本地删除）
     ///    AlbumDownload 跳过：远程删除不应删除本地相册照片
     async fn step_delete_local(&self, summary: &mut SyncSummary) {
-        if matches!(self.config.sync_mode, SyncMode::UploadOnly | SyncMode::AlbumUpload | SyncMode::AlbumDownload) {
+        if matches!(
+            self.config.sync_mode,
+            SyncMode::UploadOnly | SyncMode::AlbumUpload | SyncMode::AlbumDownload
+        ) {
             return;
         }
         let tid = &self.task_id;
@@ -1024,6 +1102,13 @@ impl Worker {
                     Ok(_) => {
                         summary.deleted_local += 1;
                         let _ = self.db.increment_task_completed(tid).await;
+                        self.emit_item_updated(
+                            tid,
+                            &action.relative_path,
+                            "delete_local",
+                            "completed",
+                        )
+                        .await;
                         tracing::info!("[{}] 删除本地: {}", tid, action.relative_path);
                         let _ = self
                             .db
@@ -1065,7 +1150,10 @@ impl Worker {
 
     /// 6.5 本地重命名（远程触发 → 本地执行 rename）
     async fn step_rename_local(&self, summary: &mut SyncSummary) {
-        if matches!(self.config.sync_mode, SyncMode::UploadOnly | SyncMode::AlbumUpload) {
+        if matches!(
+            self.config.sync_mode,
+            SyncMode::UploadOnly | SyncMode::AlbumUpload
+        ) {
             return;
         }
         let tid = &self.task_id;
@@ -1090,6 +1178,8 @@ impl Worker {
                 Ok(_) => {
                     summary.renamed += 1;
                     let _ = self.db.increment_task_completed(tid).await;
+                    self.emit_item_updated(tid, &action.new_relative_path, "rename", "completed")
+                        .await;
                     tracing::info!(
                         "[{}] 本地重命名: {} -> {}",
                         tid,
@@ -1142,7 +1232,10 @@ impl Worker {
 
     /// 6.6 本地移动（远程触发 → 本地执行 move）
     async fn step_move_local(&self, summary: &mut SyncSummary) {
-        if matches!(self.config.sync_mode, SyncMode::UploadOnly | SyncMode::AlbumUpload) {
+        if matches!(
+            self.config.sync_mode,
+            SyncMode::UploadOnly | SyncMode::AlbumUpload
+        ) {
             return;
         }
         let tid = &self.task_id;
@@ -1167,6 +1260,8 @@ impl Worker {
                 Ok(_) => {
                     summary.moved += 1;
                     let _ = self.db.increment_task_completed(tid).await;
+                    self.emit_item_updated(tid, &action.new_relative_path, "move", "completed")
+                        .await;
                     tracing::info!(
                         "[{}] 本地移动: {} -> {}",
                         tid,
@@ -1225,7 +1320,8 @@ impl Worker {
         let tid = &self.task_id;
 
         // 先标记抑制，30s 内 SSE 删除事件不会删本地文件
-        self.suppress_paths.insert(relative_path.to_string(), std::time::Instant::now());
+        self.suppress_paths
+            .insert(relative_path.to_string(), std::time::Instant::now());
 
         match self.api.delete_files(&[&remote_uri]).await {
             Ok(_) => tracing::info!("[{}] 上传失败清理-已删除远端碎片: {}", tid, remote_uri),
@@ -1253,8 +1349,15 @@ impl Worker {
             match self.api.delete_files(&remote_uris).await {
                 Ok(_) => {
                     summary.deleted_remote += remote_uris.len() as u32;
-                    for _ in &remote_uris {
+                    for action in &self.plan.delete_remote {
                         let _ = self.db.increment_task_completed(tid).await;
+                        self.emit_item_updated(
+                            tid,
+                            &action.relative_path,
+                            "delete_remote",
+                            "completed",
+                        )
+                        .await;
                     }
                     for uri in &remote_uris {
                         tracing::info!("[{}] 删除远程: {}", tid, uri);

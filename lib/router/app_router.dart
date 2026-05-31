@@ -8,6 +8,7 @@ import '../presentation/pages/webdav/webdav_page.dart';
 import '../presentation/pages/remote_download/remote_download_page.dart';
 import '../presentation/pages/settings/settings_page.dart';
 import '../presentation/pages/profile/account_switcher_page.dart';
+import '../presentation/pages/sync/sync_page_android.dart';
 import '../presentation/pages/sync/sync_settings_page.dart';
 import '../presentation/pages/preview/image_preview_page.dart';
 import '../presentation/pages/preview/pdf_preview_page.dart';
@@ -41,6 +42,7 @@ class RouteNames {
   static const String documentPreview = '/document-preview';
   static const String markdownPreview = '/markdown-preview';
   static const String categoryFiles = '/category-files';
+  static const String syncStatus = '/sync-status';
   static const String syncSettings = '/sync-settings';
   static const String shareLink = '/share-link';
   static const String cloudreveFileApp = '/cloudreve-file-app';
@@ -232,6 +234,12 @@ class AppRouter {
               color: Color(0xFFF0ABFC),
             ),
           ),
+        );
+
+      case RouteNames.syncStatus:
+        return MaterialPageRoute(
+          settings: settings,
+          builder: (context) => const SyncPageAndroid(),
         );
 
       case RouteNames.syncSettings:

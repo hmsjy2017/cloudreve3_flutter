@@ -67,7 +67,7 @@ class RustSyncApi
   String get codegenVersion => '2.12.0';
 
   @override
-  int get rustContentHash => 264517153;
+  int get rustContentHash => 1656309947;
 
   static const kDefaultExternalLibraryLoaderConfig =
       ExternalLibraryLoaderConfig(
@@ -97,6 +97,8 @@ abstract class RustSyncApiApi extends BaseApi {
 
   Future<SyncConfigFfi> crateApiFfiGetSyncConfig();
 
+  Future<SyncCumStatsFfi> crateApiFfiGetSyncCumStats();
+
   Future<SyncStatusFfi> crateApiFfiGetSyncStatus();
 
   Future<List<SyncTaskItemFfi>> crateApiFfiGetTaskDetail({
@@ -115,7 +117,7 @@ abstract class RustSyncApiApi extends BaseApi {
 
   Stream<SyncEventFfi> crateApiFfiRegisterSyncEventSink();
 
-  Future<void> crateApiFfiResetSync();
+  Future<void> crateApiFfiResetSync({required bool deleteLocalFiles});
 
   Future<void> crateApiFfiResumeSync();
 
@@ -376,7 +378,7 @@ class RustSyncApiApiImpl extends RustSyncApiApiImplPlatform
       const TaskConstMeta(debugName: "get_sync_config", argNames: []);
 
   @override
-  Future<SyncStatusFfi> crateApiFfiGetSyncStatus() {
+  Future<SyncCumStatsFfi> crateApiFfiGetSyncCumStats() {
     return handler.executeNormal(
       NormalTask(
         callFfi: (port_) {
@@ -385,6 +387,33 @@ class RustSyncApiApiImpl extends RustSyncApiApiImplPlatform
             generalizedFrbRustBinding,
             serializer,
             funcId: 9,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_sync_cum_stats_ffi,
+          decodeErrorData: sse_decode_sync_error_ffi,
+        ),
+        constMeta: kCrateApiFfiGetSyncCumStatsConstMeta,
+        argValues: [],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiFfiGetSyncCumStatsConstMeta =>
+      const TaskConstMeta(debugName: "get_sync_cum_stats", argNames: []);
+
+  @override
+  Future<SyncStatusFfi> crateApiFfiGetSyncStatus() {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 10,
             port: port_,
           );
         },
@@ -414,7 +443,7 @@ class RustSyncApiApiImpl extends RustSyncApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 10,
+            funcId: 11,
             port: port_,
           );
         },
@@ -442,7 +471,7 @@ class RustSyncApiApiImpl extends RustSyncApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 11,
+            funcId: 12,
             port: port_,
           );
         },
@@ -470,7 +499,7 @@ class RustSyncApiApiImpl extends RustSyncApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 12,
+            funcId: 13,
             port: port_,
           );
         },
@@ -497,7 +526,7 @@ class RustSyncApiApiImpl extends RustSyncApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 13,
+            funcId: 14,
             port: port_,
           );
         },
@@ -527,7 +556,7 @@ class RustSyncApiApiImpl extends RustSyncApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 14,
+            funcId: 15,
             port: port_,
           );
         },
@@ -557,7 +586,7 @@ class RustSyncApiApiImpl extends RustSyncApiApiImplPlatform
             pdeCallFfi(
               generalizedFrbRustBinding,
               serializer,
-              funcId: 15,
+              funcId: 16,
               port: port_,
             );
           },
@@ -581,15 +610,16 @@ class RustSyncApiApiImpl extends RustSyncApiApiImplPlatform
       );
 
   @override
-  Future<void> crateApiFfiResetSync() {
+  Future<void> crateApiFfiResetSync({required bool deleteLocalFiles}) {
     return handler.executeNormal(
       NormalTask(
         callFfi: (port_) {
           final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_bool(deleteLocalFiles, serializer);
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 16,
+            funcId: 17,
             port: port_,
           );
         },
@@ -598,14 +628,16 @@ class RustSyncApiApiImpl extends RustSyncApiApiImplPlatform
           decodeErrorData: sse_decode_sync_error_ffi,
         ),
         constMeta: kCrateApiFfiResetSyncConstMeta,
-        argValues: [],
+        argValues: [deleteLocalFiles],
         apiImpl: this,
       ),
     );
   }
 
-  TaskConstMeta get kCrateApiFfiResetSyncConstMeta =>
-      const TaskConstMeta(debugName: "reset_sync", argNames: []);
+  TaskConstMeta get kCrateApiFfiResetSyncConstMeta => const TaskConstMeta(
+    debugName: "reset_sync",
+    argNames: ["deleteLocalFiles"],
+  );
 
   @override
   Future<void> crateApiFfiResumeSync() {
@@ -616,7 +648,7 @@ class RustSyncApiApiImpl extends RustSyncApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 17,
+            funcId: 18,
             port: port_,
           );
         },
@@ -644,7 +676,7 @@ class RustSyncApiApiImpl extends RustSyncApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 18,
+            funcId: 19,
             port: port_,
           );
         },
@@ -671,7 +703,7 @@ class RustSyncApiApiImpl extends RustSyncApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 19,
+            funcId: 20,
             port: port_,
           );
         },
@@ -698,7 +730,7 @@ class RustSyncApiApiImpl extends RustSyncApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 20,
+            funcId: 21,
             port: port_,
           );
         },
@@ -725,7 +757,7 @@ class RustSyncApiApiImpl extends RustSyncApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 21,
+            funcId: 22,
             port: port_,
           );
         },
@@ -757,7 +789,7 @@ class RustSyncApiApiImpl extends RustSyncApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 22,
+            funcId: 23,
             port: port_,
           );
         },
@@ -787,7 +819,7 @@ class RustSyncApiApiImpl extends RustSyncApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 23,
+            funcId: 24,
             port: port_,
           );
         },
@@ -815,7 +847,7 @@ class RustSyncApiApiImpl extends RustSyncApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 24,
+            funcId: 25,
             port: port_,
           );
         },
@@ -846,7 +878,7 @@ class RustSyncApiApiImpl extends RustSyncApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 25,
+            funcId: 26,
             port: port_,
           );
         },
@@ -986,6 +1018,22 @@ class RustSyncApiApiImpl extends RustSyncApiApiImplPlatform
       dataDir: dco_decode_String(arr[12]),
       clientId: dco_decode_String(arr[13]),
       logLevel: dco_decode_String(arr[14]),
+    );
+  }
+
+  @protected
+  SyncCumStatsFfi dco_decode_sync_cum_stats_ffi(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 6)
+      throw Exception('unexpected arr length: expect 6 but see ${arr.length}');
+    return SyncCumStatsFfi(
+      uploaded: dco_decode_u_32(arr[0]),
+      downloaded: dco_decode_u_32(arr[1]),
+      renamed: dco_decode_u_32(arr[2]),
+      moved: dco_decode_u_32(arr[3]),
+      failed: dco_decode_u_32(arr[4]),
+      conflicts: dco_decode_u_32(arr[5]),
     );
   }
 
@@ -1377,6 +1425,25 @@ class RustSyncApiApiImpl extends RustSyncApiApiImplPlatform
       dataDir: var_dataDir,
       clientId: var_clientId,
       logLevel: var_logLevel,
+    );
+  }
+
+  @protected
+  SyncCumStatsFfi sse_decode_sync_cum_stats_ffi(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_uploaded = sse_decode_u_32(deserializer);
+    var var_downloaded = sse_decode_u_32(deserializer);
+    var var_renamed = sse_decode_u_32(deserializer);
+    var var_moved = sse_decode_u_32(deserializer);
+    var var_failed = sse_decode_u_32(deserializer);
+    var var_conflicts = sse_decode_u_32(deserializer);
+    return SyncCumStatsFfi(
+      uploaded: var_uploaded,
+      downloaded: var_downloaded,
+      renamed: var_renamed,
+      moved: var_moved,
+      failed: var_failed,
+      conflicts: var_conflicts,
     );
   }
 
@@ -1828,6 +1895,20 @@ class RustSyncApiApiImpl extends RustSyncApiApiImplPlatform
     sse_encode_String(self.dataDir, serializer);
     sse_encode_String(self.clientId, serializer);
     sse_encode_String(self.logLevel, serializer);
+  }
+
+  @protected
+  void sse_encode_sync_cum_stats_ffi(
+    SyncCumStatsFfi self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_u_32(self.uploaded, serializer);
+    sse_encode_u_32(self.downloaded, serializer);
+    sse_encode_u_32(self.renamed, serializer);
+    sse_encode_u_32(self.moved, serializer);
+    sse_encode_u_32(self.failed, serializer);
+    sse_encode_u_32(self.conflicts, serializer);
   }
 
   @protected

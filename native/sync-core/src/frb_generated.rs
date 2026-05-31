@@ -38,7 +38,7 @@ flutter_rust_bridge::frb_generated_boilerplate!(
     default_rust_auto_opaque = RustAutoOpaqueMoi,
 );
 pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_VERSION: &str = "2.12.0";
-pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_CONTENT_HASH: i32 = 264517153;
+pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_CONTENT_HASH: i32 = 1656309947;
 
 // Section: executor
 
@@ -331,6 +331,41 @@ fn wire__crate__api__ffi__get_sync_config_impl(
         },
     )
 }
+fn wire__crate__api__ffi__get_sync_cum_stats_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_async::<flutter_rust_bridge::for_generated::SseCodec, _, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "get_sync_cum_stats",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            deserializer.end();
+            move |context| async move {
+                transform_result_sse::<_, crate::api::ffi_types::SyncErrorFfi>(
+                    (move || async move {
+                        let output_ok = crate::api::ffi::get_sync_cum_stats().await?;
+                        Ok(output_ok)
+                    })()
+                    .await,
+                )
+            }
+        },
+    )
+}
 fn wire__crate__api__ffi__get_sync_status_impl(
     port_: flutter_rust_bridge::for_generated::MessagePort,
     ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
@@ -604,11 +639,12 @@ fn wire__crate__api__ffi__reset_sync_impl(
             };
             let mut deserializer =
                 flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_delete_local_files = <bool>::sse_decode(&mut deserializer);
             deserializer.end();
             move |context| async move {
                 transform_result_sse::<_, crate::api::ffi_types::SyncErrorFfi>(
                     (move || async move {
-                        let output_ok = crate::api::ffi::reset_sync().await?;
+                        let output_ok = crate::api::ffi::reset_sync(api_delete_local_files).await?;
                         Ok(output_ok)
                     })()
                     .await,
@@ -1102,6 +1138,26 @@ impl SseDecode for crate::api::ffi_types::SyncConfigFfi {
     }
 }
 
+impl SseDecode for crate::api::ffi_types::SyncCumStatsFfi {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_uploaded = <u32>::sse_decode(deserializer);
+        let mut var_downloaded = <u32>::sse_decode(deserializer);
+        let mut var_renamed = <u32>::sse_decode(deserializer);
+        let mut var_moved = <u32>::sse_decode(deserializer);
+        let mut var_failed = <u32>::sse_decode(deserializer);
+        let mut var_conflicts = <u32>::sse_decode(deserializer);
+        return crate::api::ffi_types::SyncCumStatsFfi {
+            uploaded: var_uploaded,
+            downloaded: var_downloaded,
+            renamed: var_renamed,
+            moved: var_moved,
+            failed: var_failed,
+            conflicts: var_conflicts,
+        };
+    }
+}
+
 impl SseDecode for crate::api::ffi_types::SyncErrorFfi {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
@@ -1449,25 +1505,26 @@ fn pde_ffi_dispatcher_primary_impl(
         6 => wire__crate__api__ffi__get_active_worker_count_impl(port, ptr, rust_vec_len, data_len),
         7 => wire__crate__api__ffi__get_recent_tasks_impl(port, ptr, rust_vec_len, data_len),
         8 => wire__crate__api__ffi__get_sync_config_impl(port, ptr, rust_vec_len, data_len),
-        9 => wire__crate__api__ffi__get_sync_status_impl(port, ptr, rust_vec_len, data_len),
-        10 => wire__crate__api__ffi__get_task_detail_impl(port, ptr, rust_vec_len, data_len),
-        11 => wire__crate__api__ffi__hydrate_file_impl(port, ptr, rust_vec_len, data_len),
-        12 => wire__crate__api__ffi__init_sync_engine_impl(port, ptr, rust_vec_len, data_len),
-        13 => wire__crate__api__ffi__pause_sync_impl(port, ptr, rust_vec_len, data_len),
-        14 => wire__crate__api__ffi__query_task_items_impl(port, ptr, rust_vec_len, data_len),
-        15 => {
+        9 => wire__crate__api__ffi__get_sync_cum_stats_impl(port, ptr, rust_vec_len, data_len),
+        10 => wire__crate__api__ffi__get_sync_status_impl(port, ptr, rust_vec_len, data_len),
+        11 => wire__crate__api__ffi__get_task_detail_impl(port, ptr, rust_vec_len, data_len),
+        12 => wire__crate__api__ffi__hydrate_file_impl(port, ptr, rust_vec_len, data_len),
+        13 => wire__crate__api__ffi__init_sync_engine_impl(port, ptr, rust_vec_len, data_len),
+        14 => wire__crate__api__ffi__pause_sync_impl(port, ptr, rust_vec_len, data_len),
+        15 => wire__crate__api__ffi__query_task_items_impl(port, ptr, rust_vec_len, data_len),
+        16 => {
             wire__crate__api__ffi__register_sync_event_sink_impl(port, ptr, rust_vec_len, data_len)
         }
-        16 => wire__crate__api__ffi__reset_sync_impl(port, ptr, rust_vec_len, data_len),
-        17 => wire__crate__api__ffi__resume_sync_impl(port, ptr, rust_vec_len, data_len),
-        18 => wire__crate__api__ffi__set_sync_log_level_impl(port, ptr, rust_vec_len, data_len),
-        19 => wire__crate__api__ffi__start_continuous_sync_impl(port, ptr, rust_vec_len, data_len),
-        20 => wire__crate__api__ffi__start_initial_sync_impl(port, ptr, rust_vec_len, data_len),
-        21 => wire__crate__api__ffi__stop_sync_impl(port, ptr, rust_vec_len, data_len),
-        22 => wire__crate__api__ffi__sync_album_to_cloud_impl(port, ptr, rust_vec_len, data_len),
-        23 => wire__crate__api__ffi__sync_shutdown_impl(port, ptr, rust_vec_len, data_len),
-        24 => wire__crate__api__ffi__update_sync_config_impl(port, ptr, rust_vec_len, data_len),
-        25 => wire__crate__api__ffi__update_tokens_impl(port, ptr, rust_vec_len, data_len),
+        17 => wire__crate__api__ffi__reset_sync_impl(port, ptr, rust_vec_len, data_len),
+        18 => wire__crate__api__ffi__resume_sync_impl(port, ptr, rust_vec_len, data_len),
+        19 => wire__crate__api__ffi__set_sync_log_level_impl(port, ptr, rust_vec_len, data_len),
+        20 => wire__crate__api__ffi__start_continuous_sync_impl(port, ptr, rust_vec_len, data_len),
+        21 => wire__crate__api__ffi__start_initial_sync_impl(port, ptr, rust_vec_len, data_len),
+        22 => wire__crate__api__ffi__stop_sync_impl(port, ptr, rust_vec_len, data_len),
+        23 => wire__crate__api__ffi__sync_album_to_cloud_impl(port, ptr, rust_vec_len, data_len),
+        24 => wire__crate__api__ffi__sync_shutdown_impl(port, ptr, rust_vec_len, data_len),
+        25 => wire__crate__api__ffi__update_sync_config_impl(port, ptr, rust_vec_len, data_len),
+        26 => wire__crate__api__ffi__update_tokens_impl(port, ptr, rust_vec_len, data_len),
         _ => unreachable!(),
     }
 }
@@ -1542,6 +1599,31 @@ impl flutter_rust_bridge::IntoIntoDart<crate::api::ffi_types::SyncConfigFfi>
     for crate::api::ffi_types::SyncConfigFfi
 {
     fn into_into_dart(self) -> crate::api::ffi_types::SyncConfigFfi {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::api::ffi_types::SyncCumStatsFfi {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.uploaded.into_into_dart().into_dart(),
+            self.downloaded.into_into_dart().into_dart(),
+            self.renamed.into_into_dart().into_dart(),
+            self.moved.into_into_dart().into_dart(),
+            self.failed.into_into_dart().into_dart(),
+            self.conflicts.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
+    for crate::api::ffi_types::SyncCumStatsFfi
+{
+}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::ffi_types::SyncCumStatsFfi>
+    for crate::api::ffi_types::SyncCumStatsFfi
+{
+    fn into_into_dart(self) -> crate::api::ffi_types::SyncCumStatsFfi {
         self
     }
 }
@@ -1973,6 +2055,18 @@ impl SseEncode for crate::api::ffi_types::SyncConfigFfi {
         <String>::sse_encode(self.data_dir, serializer);
         <String>::sse_encode(self.client_id, serializer);
         <String>::sse_encode(self.log_level, serializer);
+    }
+}
+
+impl SseEncode for crate::api::ffi_types::SyncCumStatsFfi {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <u32>::sse_encode(self.uploaded, serializer);
+        <u32>::sse_encode(self.downloaded, serializer);
+        <u32>::sse_encode(self.renamed, serializer);
+        <u32>::sse_encode(self.moved, serializer);
+        <u32>::sse_encode(self.failed, serializer);
+        <u32>::sse_encode(self.conflicts, serializer);
     }
 }
 

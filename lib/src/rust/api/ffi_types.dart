@@ -8,7 +8,7 @@ import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 import 'package:freezed_annotation/freezed_annotation.dart' hide protected;
 part 'ffi_types.freezed.dart';
 
-// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`
+// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`
 
 /// Android: 云端相册目录检查结果
 class CloudAlbumCheckResultFfi {
@@ -124,6 +124,46 @@ class SyncConfigFfi {
           dataDir == other.dataDir &&
           clientId == other.clientId &&
           logLevel == other.logLevel;
+}
+
+/// 累积统计（FFI）
+class SyncCumStatsFfi {
+  final int uploaded;
+  final int downloaded;
+  final int renamed;
+  final int moved;
+  final int failed;
+  final int conflicts;
+
+  const SyncCumStatsFfi({
+    required this.uploaded,
+    required this.downloaded,
+    required this.renamed,
+    required this.moved,
+    required this.failed,
+    required this.conflicts,
+  });
+
+  @override
+  int get hashCode =>
+      uploaded.hashCode ^
+      downloaded.hashCode ^
+      renamed.hashCode ^
+      moved.hashCode ^
+      failed.hashCode ^
+      conflicts.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is SyncCumStatsFfi &&
+          runtimeType == other.runtimeType &&
+          uploaded == other.uploaded &&
+          downloaded == other.downloaded &&
+          renamed == other.renamed &&
+          moved == other.moved &&
+          failed == other.failed &&
+          conflicts == other.conflicts;
 }
 
 @freezed

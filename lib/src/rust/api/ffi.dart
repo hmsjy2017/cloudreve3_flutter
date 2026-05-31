@@ -43,8 +43,11 @@ Future<void> resumeSync() => RustSyncApi.instance.api.crateApiFfiResumeSync();
 Future<SyncSummaryFfi> forceSync() =>
     RustSyncApi.instance.api.crateApiFfiForceSync();
 
-/// 重置同步：停止任务 → 清空 DB → 清空本地目录 → 回到初始状态
-Future<void> resetSync() => RustSyncApi.instance.api.crateApiFfiResetSync();
+/// 重置同步：停止任务 → 清空 DB → (可选)清空本地目录 → 回到初始状态
+Future<void> resetSync({required bool deleteLocalFiles}) => RustSyncApi
+    .instance
+    .api
+    .crateApiFfiResetSync(deleteLocalFiles: deleteLocalFiles);
 
 /// 获取同步状态快照
 Future<SyncStatusFfi> getSyncStatus() =>
@@ -112,3 +115,7 @@ Future<List<SyncTaskItemFfi>> getTaskDetail({required String taskId}) =>
 Future<List<SyncTaskItemFfi>> queryTaskItems({
   required TaskItemFilterFfi filter,
 }) => RustSyncApi.instance.api.crateApiFfiQueryTaskItems(filter: filter);
+
+/// 获取累积统计（从 DB 聚合，跨所有同步任务）
+Future<SyncCumStatsFfi> getSyncCumStats() =>
+    RustSyncApi.instance.api.crateApiFfiGetSyncCumStats();

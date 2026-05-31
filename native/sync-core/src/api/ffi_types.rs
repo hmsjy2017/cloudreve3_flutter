@@ -154,6 +154,17 @@ pub struct SyncTaskItemFfi {
     pub updated_at: String,
 }
 
+/// 累积统计（FFI）
+#[derive(Debug, Clone)]
+pub struct SyncCumStatsFfi {
+    pub uploaded: u32,
+    pub downloaded: u32,
+    pub renamed: u32,
+    pub moved: u32,
+    pub failed: u32,
+    pub conflicts: u32,
+}
+
 /// 任务项查询过滤器（FFI）
 #[derive(Debug, Clone)]
 pub struct TaskItemFilterFfi {

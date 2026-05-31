@@ -849,6 +849,47 @@ impl SyncDb {
         Ok(result)
     }
 
+    /// 从 DB 聚合累积统计（跨所有同步任务）
+    pub async fn get_cum_stats(&self) -> Result<SyncCumStats> {
+        let pool = self.read_pool.clone();
+        let result = tokio::task::spawn_blocking(move || -> Result<SyncCumStats> {
+            let conn = pool.get()?;
+
+            let uploaded: u32 = conn.query_row(
+                "SELECT COUNT(*) FROM sync_task_item WHERE action_type = 'upload' AND status = 'completed'",
+                [], |r| r.get(0),
+            ).unwrap_or(0);
+
+            let downloaded: u32 = conn.query_row(
+                "SELECT COUNT(*) FROM sync_task_item WHERE action_type = 'download' AND status = 'completed'",
+                [], |r| r.get(0),
+            ).unwrap_or(0);
+
+            let renamed: u32 = conn.query_row(
+                "SELECT COUNT(*) FROM sync_task_item WHERE action_type = 'rename' AND status = 'completed'",
+                [], |r| r.get(0),
+            ).unwrap_or(0);
+
+            let moved: u32 = conn.query_row(
+                "SELECT COUNT(*) FROM sync_task_item WHERE action_type = 'move' AND status = 'completed'",
+                [], |r| r.get(0),
+            ).unwrap_or(0);
+
+            let failed: u32 = conn.query_row(
+                "SELECT COUNT(*) FROM sync_task_item WHERE status = 'failed'",
+                [], |r| r.get(0),
+            ).unwrap_or(0);
+
+            let conflicts: u32 = conn.query_row(
+                "SELECT COUNT(*) FROM sync_task_item WHERE action_type = 'conflict_resolve' AND status = 'completed'",
+                [], |r| r.get(0),
+            ).unwrap_or(0);
+
+            Ok(SyncCumStats { uploaded, downloaded, renamed, moved, failed, conflicts })
+        }).await??;
+        Ok(result)
+    }
+
     /// 清空所有同步数据（保留 sync_root 和 album_sync_record）
     pub async fn reset_sync_data(&self) -> Result<()> {
         let conn = self.write_conn.lock().await;

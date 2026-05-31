@@ -188,6 +188,25 @@ class StorageService {
   Future<void> clearSyncData() async {
     await remove(StorageKeys.syncConfig);
     await remove(StorageKeys.syncState);
+    await remove(StorageKeys.syncCumStats);
+  }
+
+  /// 保存同步累积统计
+  Future<bool> setSyncCumStats(Map<String, int> stats) async {
+    final json = jsonEncode(stats);
+    return await setString(StorageKeys.syncCumStats, json);
+  }
+
+  /// 读取同步累积统计
+  Future<Map<String, int>?> getSyncCumStats() async {
+    final json = await getString(StorageKeys.syncCumStats);
+    if (json == null) return null;
+    try {
+      final map = jsonDecode(json) as Map<String, dynamic>;
+      return map.map((k, v) => MapEntry(k, v as int));
+    } catch (_) {
+      return null;
+    }
   }
 
   // ===== client_id 持久化 =====

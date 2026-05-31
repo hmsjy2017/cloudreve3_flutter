@@ -184,8 +184,8 @@ impl SyncEngine {
     }
 
     /// 重置同步：停止任务 → 清空 DB → 清空本地目录 → 回到初始状态
-    pub async fn reset_sync(&self) -> Result<()> {
-        tracing::info!("开始重置同步...");
+    pub async fn reset_sync(&self, delete_local_files: bool) -> Result<()> {
+        tracing::info!("开始重置同步... delete_local_files={}", delete_local_files);
 
         // 1. 停止同步
         self.stop().await?;
@@ -206,19 +206,23 @@ impl SyncEngine {
         tracing::info!("同步数据库已清空");
 
         // 4. 清空本地同步目录（保留目录本身，只删内容）
-        let local_root = self.config.read().await.local_root.clone();
-        if local_root.exists() {
-            let entries = std::fs::read_dir(&local_root)
-                .map_err(|_| crate::errors::SyncError::DiskFull { needed: 0, available: 0 })?;
-            for entry in entries.flatten() {
-                let path = entry.path();
-                if path.is_dir() {
-                    let _ = std::fs::remove_dir_all(&path);
-                } else {
-                    let _ = std::fs::remove_file(&path);
+        if delete_local_files {
+            let local_root = self.config.read().await.local_root.clone();
+            if local_root.exists() {
+                let entries = std::fs::read_dir(&local_root)
+                    .map_err(|_| crate::errors::SyncError::DiskFull { needed: 0, available: 0 })?;
+                for entry in entries.flatten() {
+                    let path = entry.path();
+                    if path.is_dir() {
+                        let _ = std::fs::remove_dir_all(&path);
+                    } else {
+                        let _ = std::fs::remove_file(&path);
+                    }
                 }
+                tracing::info!("本地同步目录已清空: {}", local_root.display());
             }
-            tracing::info!("本地同步目录已清空: {}", local_root.display());
+        } else {
+            tracing::info!("跳过清空本地同步目录");
         }
 
         // 5. 清空内存缓存
@@ -232,13 +236,25 @@ impl SyncEngine {
         Ok(())
     }
 
-    pub fn status(&self) -> SyncStatusSnapshot {
+    pub async fn status(&self) -> SyncStatusSnapshot {
         let state = self.state.try_read().map(|g| g.clone()).unwrap_or(SyncState::Idle);
 
         let (synced_files, total_files) = match &state {
             SyncState::InitialSync { progress } => {
                 let done = progress.uploaded + progress.downloaded;
                 (done, progress.total_to_sync)
+            }
+            SyncState::Continuous | SyncState::Paused => {
+                // 持续同步/暂停：从活跃任务聚合进度
+                let mut synced: u64 = 0;
+                let mut total: u64 = 0;
+                if let Ok(tasks) = self.db.get_active_sync_tasks().await {
+                    for t in &tasks {
+                        synced += t.completed_count as u64;
+                        total += t.total_count as u64;
+                    }
+                }
+                (synced, total)
             }
             _ => (0, 0),
         };
@@ -315,6 +331,10 @@ impl SyncEngine {
 
     pub async fn query_task_items(&self, filter: &TaskItemFilter) -> Result<Vec<SyncTaskItem>> {
         self.db.query_task_items(filter).await
+    }
+
+    pub async fn get_cum_stats(&self) -> Result<SyncCumStats> {
+        self.db.get_cum_stats().await
     }
 
     pub async fn hydrate_file(&self, local_path: &str) -> Result<()> {

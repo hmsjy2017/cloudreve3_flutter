@@ -482,12 +482,12 @@ pub async fn force_sync() -> Result<SyncSummaryFfi, SyncErrorFfi> {
         .map_err(error_to_ffi)
 }
 
-/// 重置同步：停止任务 → 清空 DB → 清空本地目录 → 回到初始状态
+/// 重置同步：停止任务 → 清空 DB → (可选)清空本地目录 → 回到初始状态
 #[frb]
-pub async fn reset_sync() -> Result<(), SyncErrorFfi> {
-    tracing::debug!("[FFI] reset_sync ←");
+pub async fn reset_sync(delete_local_files: bool) -> Result<(), SyncErrorFfi> {
+    tracing::debug!("[FFI] reset_sync ← delete_local_files={}", delete_local_files);
     let engine = get_engine()?;
-    engine.reset_sync().await.map_err(error_to_ffi)
+    engine.reset_sync(delete_local_files).await.map_err(error_to_ffi)
 }
 
 // ========== 状态查询 ==========
@@ -496,7 +496,7 @@ pub async fn reset_sync() -> Result<(), SyncErrorFfi> {
 #[frb]
 pub async fn get_sync_status() -> Result<SyncStatusFfi, SyncErrorFfi> {
     let engine = get_engine()?;
-    let s = engine.status();
+    let s = engine.status().await;
     tracing::trace!("[FFI] get_sync_status → state={:?}, synced={}, total={}", s.state, s.synced_files, s.total_files);
     Ok(status_to_ffi(s))
 }
@@ -666,6 +666,24 @@ pub async fn query_task_items(filter: TaskItemFilterFfi) -> Result<Vec<SyncTaskI
     let items = engine.query_task_items(&model_filter).await.map_err(error_to_ffi)?;
     tracing::trace!("[FFI] query_task_items → count={}", items.len());
     Ok(items.into_iter().map(task_item_to_ffi).collect())
+}
+
+/// 获取累积统计（从 DB 聚合，跨所有同步任务）
+#[frb]
+pub async fn get_sync_cum_stats() -> Result<SyncCumStatsFfi, SyncErrorFfi> {
+    tracing::debug!("[FFI] get_sync_cum_stats ←");
+    let engine = get_engine()?;
+    let stats = engine.get_cum_stats().await.map_err(error_to_ffi)?;
+    tracing::debug!("[FFI] get_sync_cum_stats → uploaded={}, downloaded={}, renamed={}, moved={}, failed={}, conflicts={}",
+        stats.uploaded, stats.downloaded, stats.renamed, stats.moved, stats.failed, stats.conflicts);
+    Ok(SyncCumStatsFfi {
+        uploaded: stats.uploaded,
+        downloaded: stats.downloaded,
+        renamed: stats.renamed,
+        moved: stats.moved,
+        failed: stats.failed,
+        conflicts: stats.conflicts,
+    })
 }
 
 fn task_to_ffi(t: crate::models::SyncTask) -> SyncTaskFfi {

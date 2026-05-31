@@ -14,6 +14,7 @@ import '../../../services/sync_service.dart';
 import 'package:permission_handler/permission_handler.dart';
 import '../../widgets/desktop_constrained.dart';
 import '../../widgets/folder_picker.dart';
+import '../../widgets/sync_stats_card.dart';
 import '../../widgets/toast_helper.dart';
 import 'sync_log_viewer_page.dart';
 
@@ -338,7 +339,7 @@ class _SyncSettingsPageState extends State<SyncSettingsPage> {
                       ),
                     ),
                   ),
-                if (sync.engineInitialized && !Platform.isAndroid)
+                if (sync.engineInitialized)
                   Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
                     child: SizedBox(
@@ -564,34 +565,22 @@ class _SyncSettingsPageState extends State<SyncSettingsPage> {
               ),
             ),
         ],
-        if (sync.lastSummary != null) ...[
+        // 实时累积统计卡片
+        if (sync.engineInitialized) ...[
           const Divider(indent: 16, endIndent: 16),
           Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            child: Wrap(
-              spacing: 16,
-              children: [
-                _summaryChip('上传', sync.lastSummary!.uploaded),
-                _summaryChip('下载', sync.lastSummary!.downloaded),
-                _summaryChip('冲突', sync.lastSummary!.conflicts),
-                _summaryChip('失败', sync.lastSummary!.failed),
-                _summaryChip('跳过', sync.lastSummary!.skipped),
-                _summaryChip('删本地', sync.lastSummary!.deletedLocal),
-                _summaryChip('删远程', sync.lastSummary!.deletedRemote),
-              ],
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+            child: SyncStatsCard(
+              uploaded: sync.cumUploaded,
+              downloaded: sync.cumDownloaded,
+              renamed: sync.cumRenamed,
+              moved: sync.cumMoved,
+              conflicts: sync.cumConflicts,
+              failed: sync.cumFailed,
             ),
           ),
         ],
       ],
-    );
-  }
-
-  Widget _summaryChip(String label, int value) {
-    return Chip(
-      label: Text('$label: $value'),
-      labelStyle: Theme.of(context).textTheme.bodySmall,
-      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-      visualDensity: VisualDensity.compact,
     );
   }
 
@@ -1065,17 +1054,23 @@ class _SyncSettingsPageState extends State<SyncSettingsPage> {
   }
 
   Future<void> _resetSync(SyncProvider sync) async {
+    final isAndroid = Platform.isAndroid;
+    final description = isAndroid
+        ? '此操作将：\n\n'
+            '• 停止当前同步任务\n'
+            '• 清空同步数据库（任务记录、文件映射）\n\n'
+            '本地文件不会被删除。重置后需重新点击"开始同步"。'
+        : '此操作将：\n\n'
+            '• 停止当前同步任务\n'
+            '• 清空同步数据库（任务记录、文件映射）\n'
+            '• 删除本地同步目录中的所有文件（不影响远程）\n\n'
+            '重置后需重新点击"开始同步"。此操作不可恢复。';
+
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('重置同步'),
-        content: const Text(
-          '此操作将：\n\n'
-          '• 停止当前同步任务\n'
-          '• 清空同步数据库（任务记录、文件映射）\n'
-          '• 删除本地同步目录中的所有文件（不影响远程）\n\n'
-          '重置后需重新点击"开始同步"。此操作不可恢复。',
-        ),
+        content: Text(description),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
@@ -1093,7 +1088,7 @@ class _SyncSettingsPageState extends State<SyncSettingsPage> {
     );
 
     if (confirmed == true) {
-      await sync.resetSync();
+      await sync.resetSync(deleteLocalFiles: !Platform.isAndroid);
       if (mounted) ToastHelper.success('同步已重置');
     }
   }

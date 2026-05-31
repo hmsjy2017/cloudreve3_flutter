@@ -14,6 +14,7 @@ class SyncService {
   SyncService._();
 
   bool _initialized = false;
+  StreamSubscription<ffi_types.SyncEventFfi>? _rustEventSub;
 
   /// 事件流，供 SyncProvider 订阅
   final _eventController = StreamController<SyncEventModel>.broadcast();
@@ -33,6 +34,7 @@ class SyncService {
     await ffi.initSyncEngine(config: config.toFfi());
 
     _initialized = true;
+    _subscribeRustEvents();
     AppLogger.d('[FFI] ← initSyncEngine: ok');
   }
 
@@ -194,6 +196,21 @@ class SyncService {
     )).toList();
   }
 
+  /// 从 DB 聚合累积统计（跨所有同步任务的权威数据源）
+  Future<Map<String, int>> getCumStats() async {
+    AppLogger.d('[FFI] → getSyncCumStats');
+    final stats = await ffi.getSyncCumStats();
+    AppLogger.d('[FFI] ← getSyncCumStats: uploaded=${stats.uploaded}, downloaded=${stats.downloaded}, failed=${stats.failed}, conflicts=${stats.conflicts}');
+    return {
+      'uploaded': stats.uploaded,
+      'downloaded': stats.downloaded,
+      'renamed': stats.renamed,
+      'moved': stats.moved,
+      'failed': stats.failed,
+      'conflicts': stats.conflicts,
+    };
+  }
+
   // ========== 以下为低频操作，保持 debug 级别 ==========
 
   /// 水合文件 (Windows CFAPi)
@@ -228,10 +245,33 @@ class SyncService {
   /// 销毁同步引擎
   Future<void> dispose() async {
     AppLogger.d('[FFI] → disposeSyncEngine');
+    _rustEventSub?.cancel();
+    _rustEventSub = null;
     await _eventController.close();
     await ffi.disposeSyncEngine();
     _initialized = false;
     AppLogger.d('[FFI] ← disposeSyncEngine: ok');
+  }
+
+  /// 订阅 Rust 事件流，转换后转发到 _eventController
+  void _subscribeRustEvents() {
+    _rustEventSub?.cancel();
+    try {
+      final stream = ffi.registerSyncEventSink();
+      _rustEventSub = stream.listen(
+        (event) {
+          final model = syncEventFromFfi(event);
+          if (model != null && !_eventController.isClosed) {
+            _eventController.add(model);
+          }
+        },
+        onError: (e) => AppLogger.e('[FFI] Rust event stream error: $e'),
+        onDone: () => AppLogger.d('[FFI] Rust event stream done'),
+      );
+      AppLogger.d('[FFI] Rust event stream subscribed');
+    } catch (e) {
+      AppLogger.e('[FFI] Failed to subscribe Rust event stream: $e');
+    }
   }
 
   /// 热修改日志级别（立即生效，无需重启）
@@ -242,9 +282,9 @@ class SyncService {
   }
 
   /// 重置同步：停止任务 → 清空 DB → 清空本地目录 → 回到初始状态
-  Future<void> resetSync() async {
-    AppLogger.d('[FFI] → resetSync');
-    await ffi.resetSync();
+  Future<void> resetSync({bool deleteLocalFiles = true}) async {
+    AppLogger.d('[FFI] → resetSync: deleteLocalFiles=$deleteLocalFiles');
+    await ffi.resetSync(deleteLocalFiles: deleteLocalFiles);
     AppLogger.d('[FFI] ← resetSync: ok');
   }
 }
