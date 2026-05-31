@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 import 'package:background_downloader/background_downloader.dart' as bd;
 import 'package:flutter/foundation.dart';
+import 'package:external_path/external_path.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:permission_handler/permission_handler.dart';
 import '../core/constants/storage_keys.dart';
@@ -66,7 +67,10 @@ class DownloadService {
         throw Exception('存储权限被拒绝');
       }
 
-      final directory = Directory('/storage/emulated/0/Download');
+      final downloadPath = await ExternalPath.getExternalStoragePublicDirectory(
+        ExternalPath.DIRECTORY_DOWNLOAD,
+      );
+      final directory = Directory(downloadPath);
       if (!await directory.exists()) {
         await directory.create(recursive: true);
       }

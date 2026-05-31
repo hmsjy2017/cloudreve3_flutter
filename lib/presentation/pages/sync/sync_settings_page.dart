@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:external_path/external_path.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:open_file/open_file.dart';
@@ -48,6 +49,9 @@ class _SyncSettingsPageState extends State<SyncSettingsPage> {
     if (Platform.isAndroid) {
       _syncMode = SyncDefaults.defaultAndroidSyncMode;
       _remoteRoot = SyncDefaults.defaultAndroidRemoteRoot;
+      SyncDefaults.getDefaultAndroidLocalRoot().then((path) {
+        if (mounted) setState(() => _localRootController.text = path);
+      });
     }
 
     AppLogger.i('默认同步目录: ${_localRootController.text}');
@@ -479,17 +483,20 @@ class _SyncSettingsPageState extends State<SyncSettingsPage> {
   void _handleAlbumModeChange(String mode) {
     setState(() {
       _syncMode = mode;
-      _localRootController.text = SyncDefaults.defaultAndroidLocalRoot;
       _remoteRoot = SyncDefaults.defaultAndroidRemoteRoot;
+    });
+    SyncDefaults.getDefaultAndroidLocalRoot().then((path) {
+      if (mounted) setState(() => _localRootController.text = path);
     });
     _pushConfig();
   }
 
   /// 当前模式为相册模式时，自动设置写死路径
-  void _applyAlbumPaths() {
+  Future<void> _applyAlbumPaths() async {
     if (!Platform.isAndroid) return;
     if (_syncMode == 'album_upload' || _syncMode == 'album_download') {
-      _localRootController.text = SyncDefaults.defaultAndroidLocalRoot;
+      final path = await SyncDefaults.getDefaultAndroidLocalRoot();
+      _localRootController.text = path;
       _remoteRoot = SyncDefaults.defaultAndroidRemoteRoot;
     }
   }
@@ -1205,13 +1212,21 @@ class _SyncSettingsPageState extends State<SyncSettingsPage> {
         if (mounted) ToastHelper.error('日志文件不存在');
         return;
       }
-      final downloadDir = await getDownloadsDirectory();
-      if (downloadDir == null) {
-        if (mounted) ToastHelper.error('无法获取下载目录');
-        return;
+      final String downloadPath;
+      if (Platform.isAndroid) {
+        downloadPath = await ExternalPath.getExternalStoragePublicDirectory(
+          ExternalPath.DIRECTORY_DOWNLOAD,
+        );
+      } else {
+        final downloadDir = await getDownloadsDirectory();
+        if (downloadDir == null) {
+          if (mounted) ToastHelper.error('无法获取下载目录');
+          return;
+        }
+        downloadPath = downloadDir.path;
       }
       final timestamp = DateTime.now().toIso8601String().replaceAll(':', '-').substring(0, 19);
-      final destPath = '${downloadDir.path}${Platform.pathSeparator}sync_core_log_$timestamp.txt';
+      final destPath = '$downloadPath${Platform.pathSeparator}sync_core_log_$timestamp.txt';
       await srcFile.copy(destPath);
       if (mounted) ToastHelper.success('日志已导出到：$destPath');
     } catch (e) {
