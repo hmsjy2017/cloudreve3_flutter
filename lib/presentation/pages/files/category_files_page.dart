@@ -4,10 +4,13 @@ import 'package:lucide_icons/lucide_icons.dart';
 import 'package:provider/provider.dart';
 
 import '../../../core/utils/date_utils.dart' as date_utils;
+import '../../../core/constants/sort_options.dart';
+import '../../../core/constants/storage_keys.dart';
 import '../../../core/utils/file_type_utils.dart';
 import '../../../data/models/file_model.dart';
 import '../../../router/app_router.dart';
 import '../../../services/file_service.dart';
+import '../../../services/storage_service.dart';
 import '../../providers/file_manager_provider.dart';
 import '../../widgets/file_info_dialog.dart';
 import '../../widgets/file_operation_dialogs.dart';
@@ -73,6 +76,7 @@ class _CategoryFilesPageState extends State<CategoryFilesPage>
   bool _isLoading = true;
   bool _isLoadingMore = false;
   String? _errorMessage;
+  SortOption _sortOption = SortOption.default_;
 
   bool get _hasSelection => _selectedFilePaths.isNotEmpty;
 
@@ -83,6 +87,7 @@ class _CategoryFilesPageState extends State<CategoryFilesPage>
   @override
   void initState() {
     super.initState();
+    _restoreSortOption();
     _loadFiles(refresh: true);
     _scrollController.addListener(_onScroll);
   }
@@ -133,6 +138,8 @@ class _CategoryFilesPageState extends State<CategoryFilesPage>
       final response = await _fileService.listFilesByCategory(
         category: widget.args.category,
         pageSize: 100,
+        orderBy: _sortOption.field.apiKey,
+        orderDirection: _sortOption.direction.apiKey,
         nextPageToken: refresh ? null : _nextPageToken,
       );
 
@@ -170,7 +177,55 @@ class _CategoryFilesPageState extends State<CategoryFilesPage>
     }
   }
 
+  Widget _buildSortMenu() {
+    final allOptions = [
+      for (final field in SortField.values)
+        for (final dir in SortDirection.values) SortOption(field, dir),
+    ];
+
+    return PopupMenuButton<SortOption>(
+      icon: const Icon(LucideIcons.arrowUpDown),
+      tooltip: '排序',
+      position: PopupMenuPosition.under,
+      onSelected: _setSortOption,
+      itemBuilder: (context) => allOptions.map((option) {
+        final isSelected = _sortOption == option;
+        return PopupMenuItem<SortOption>(
+          value: option,
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (isSelected)
+                Padding(
+                  padding: const EdgeInsets.only(right: 8),
+                  child: Icon(Icons.check, size: 16, color: Theme.of(context).colorScheme.primary),
+                )
+              else
+                const SizedBox(width: 24),
+              Text(option.menuLabel),
+            ],
+          ),
+        );
+      }).toList(),
+    );
+  }
+
   Future<void> _refresh() => _loadFiles(refresh: true);
+
+  Future<void> _restoreSortOption() async {
+    final key = await StorageService.instance.getString(StorageKeys.fileSortOption);
+    final option = SortOption.fromKey(key);
+    if (option != _sortOption) {
+      setState(() => _sortOption = option);
+    }
+  }
+
+  Future<void> _setSortOption(SortOption option) async {
+    if (_sortOption == option) return;
+    setState(() => _sortOption = option);
+    await StorageService.instance.setString(StorageKeys.fileSortOption, option.toKey());
+    await _loadFiles(refresh: true);
+  }
 
   void _toggleSelection(FileModel file) {
     HapticFeedback.selectionClick();
@@ -241,6 +296,7 @@ class _CategoryFilesPageState extends State<CategoryFilesPage>
     return AppBar(
       title: Text(args.title),
       actions: [
+        _buildSortMenu(),
         IconButton(
           icon: const Icon(LucideIcons.refreshCw),
           tooltip: '刷新',

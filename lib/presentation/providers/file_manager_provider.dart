@@ -3,7 +3,10 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import '../../data/models/file_model.dart';
 import '../../services/file_service.dart';
+import '../../services/storage_service.dart';
 import '../../services/thumbnail_service.dart';
+import '../../core/constants/sort_options.dart';
+import '../../core/constants/storage_keys.dart';
 import '../../core/utils/app_logger.dart';
 import '../../core/utils/file_utils.dart';
 
@@ -25,6 +28,7 @@ class FileManagerProvider extends ChangeNotifier {
   List<FileModel> _files = [];
   List<String> _selectedFiles = [];
   FileViewType _viewType = FileViewType.list;
+  SortOption _sortOption = SortOption.default_;
   bool _isLoading = false;
   bool _isLoadingMore = false;
   bool _hasMore = true;
@@ -38,6 +42,7 @@ class FileManagerProvider extends ChangeNotifier {
   List<FileModel> get files => _files;
   List<String> get selectedFiles => _selectedFiles;
   FileViewType get viewType => _viewType;
+  SortOption get sortOption => _sortOption;
   bool get isLoading => _isLoading;
   bool get isLoadingMore => _isLoadingMore;
   bool get hasMore => _hasMore;
@@ -63,6 +68,8 @@ class FileManagerProvider extends ChangeNotifier {
       final response = await FileService().listFiles(
         uri: _currentPath,
         pageSize: 50,
+        orderBy: _sortOption.field.apiKey,
+        orderDirection: _sortOption.direction.apiKey,
       ).timeout(timeout);
 
       final List<dynamic> filesData = response['files'] as List<dynamic>? ?? [];
@@ -106,6 +113,8 @@ class FileManagerProvider extends ChangeNotifier {
       final response = await FileService().listFiles(
         uri: _currentPath,
         pageSize: 50,
+        orderBy: _sortOption.field.apiKey,
+        orderDirection: _sortOption.direction.apiKey,
         nextPageToken: _nextPageToken,
       ).timeout(timeout);
 
@@ -193,6 +202,25 @@ class FileManagerProvider extends ChangeNotifier {
   void setViewType(FileViewType type) {
     _viewType = type;
     notifyListeners();
+  }
+
+  /// 设置排序选项并重新加载
+  Future<void> setSortOption(SortOption option) async {
+    if (_sortOption == option) return;
+    _sortOption = option;
+    notifyListeners();
+    await StorageService.instance.setString(StorageKeys.fileSortOption, option.toKey());
+    await loadFiles(refresh: true);
+  }
+
+  /// 从持久化恢复排序偏好
+  Future<void> restoreSortOption() async {
+    final key = await StorageService.instance.getString(StorageKeys.fileSortOption);
+    final option = SortOption.fromKey(key);
+    if (option != _sortOption) {
+      _sortOption = option;
+      notifyListeners();
+    }
   }
 
   /// 设置错误信息
@@ -386,6 +414,8 @@ class FileManagerProvider extends ChangeNotifier {
       final response = await FileService().listFiles(
         uri: _currentPath,
         pageSize: 50,
+        orderBy: _sortOption.field.apiKey,
+        orderDirection: _sortOption.direction.apiKey,
       ).timeout(timeout);
 
       final List<dynamic> filesData = response['files'] as List<dynamic>? ?? [];

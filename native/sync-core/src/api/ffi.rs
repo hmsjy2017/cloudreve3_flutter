@@ -671,10 +671,10 @@ pub async fn query_task_items(filter: TaskItemFilterFfi) -> Result<Vec<SyncTaskI
 /// 获取累积统计（从 DB 聚合，跨所有同步任务）
 #[frb]
 pub async fn get_sync_cum_stats() -> Result<SyncCumStatsFfi, SyncErrorFfi> {
-    tracing::debug!("[FFI] get_sync_cum_stats ←");
+    tracing::trace!("[FFI] get_sync_cum_stats ←");
     let engine = get_engine()?;
     let stats = engine.get_cum_stats().await.map_err(error_to_ffi)?;
-    tracing::debug!("[FFI] get_sync_cum_stats → uploaded={}, downloaded={}, renamed={}, moved={}, failed={}, conflicts={}",
+    tracing::trace!("[FFI] get_sync_cum_stats → uploaded={}, downloaded={}, renamed={}, moved={}, failed={}, conflicts={}",
         stats.uploaded, stats.downloaded, stats.renamed, stats.moved, stats.failed, stats.conflicts);
     Ok(SyncCumStatsFfi {
         uploaded: stats.uploaded,

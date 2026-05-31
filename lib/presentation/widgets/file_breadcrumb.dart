@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 
-/// 面包屑导航组件
-class FileBreadcrumb extends StatelessWidget {
+/// 面包屑导航组件（桌面端底部）
+class FileBreadcrumb extends StatefulWidget {
   final String currentPath;
   final void Function(String path) onPathTap;
 
@@ -13,8 +13,37 @@ class FileBreadcrumb extends StatelessWidget {
   });
 
   @override
+  State<FileBreadcrumb> createState() => _FileBreadcrumbState();
+}
+
+class _FileBreadcrumbState extends State<FileBreadcrumb> {
+  final _controller = ScrollController();
+
+  @override
+  void didUpdateWidget(covariant FileBreadcrumb oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.currentPath != widget.currentPath) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (_controller.hasClients) {
+          _controller.animateTo(
+            _controller.position.maxScrollExtent,
+            duration: const Duration(milliseconds: 200),
+            curve: Curves.easeOut,
+          );
+        }
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final pathParts = currentPath.split('/');
+    final pathParts = widget.currentPath.split('/');
     pathParts.removeWhere((part) => part.isEmpty);
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
@@ -29,6 +58,7 @@ class FileBreadcrumb extends StatelessWidget {
         ),
       ),
       child: SingleChildScrollView(
+        controller: _controller,
         scrollDirection: Axis.horizontal,
         child: Row(
           children: [
@@ -38,7 +68,7 @@ class FileBreadcrumb extends StatelessWidget {
               path: '/',
               icon: LucideIcons.home,
               primaryColor: colorScheme.primary,
-              onTap: () => onPathTap('/'),
+              onTap: () => widget.onPathTap('/'),
             ),
             for (int i = 0; i < pathParts.length; i++) ...[
               Padding(
@@ -51,7 +81,7 @@ class FileBreadcrumb extends StatelessWidget {
                 path: '/${pathParts.sublist(0, i + 1).join('/')}',
                 icon: null,
                 primaryColor: colorScheme.primary,
-                onTap: () => onPathTap('/${pathParts.sublist(0, i + 1).join('/')}'),
+                onTap: () => widget.onPathTap('/${pathParts.sublist(0, i + 1).join('/')}'),
               ),
             ],
           ],

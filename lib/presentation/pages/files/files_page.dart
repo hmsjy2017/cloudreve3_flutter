@@ -8,6 +8,7 @@ import 'package:cloudreve4_flutter/data/models/file_model.dart';
 import 'package:cloudreve4_flutter/services/file_service.dart';
 import 'package:cloudreve4_flutter/services/upload_service.dart';
 import '../../../core/utils/file_utils.dart';
+import '../../../core/constants/sort_options.dart';
 import 'package:flutter/material.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 import 'package:provider/provider.dart';
@@ -42,6 +43,7 @@ class _FilesPageState extends State<FilesPage> {
   FileModel? _infoFile;
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
   final ScrollController _scrollController = ScrollController();
+  final ScrollController _breadcrumbController = ScrollController();
 
   // FAB 状态
   bool _isFabVisible = true;
@@ -65,6 +67,7 @@ class _FilesPageState extends State<FilesPage> {
         } else {
           fileManager.setViewType(FileViewType.list);
         }
+        fileManager.restoreSortOption();
         if (_isFirstLoad) {
           fileManager.loadFiles();
           _isFirstLoad = false;
@@ -92,6 +95,7 @@ class _FilesPageState extends State<FilesPage> {
   void dispose() {
     _scrollController.removeListener(_onScrollForPagination);
     _scrollController.dispose();
+    _breadcrumbController.dispose();
     _fabShowTimer?.cancel();
     UploadService.instance.onUploadCompleted = null;
     super.dispose();
@@ -245,10 +249,21 @@ class _FilesPageState extends State<FilesPage> {
     final pathParts = fileManager.currentPath.split('/');
     pathParts.removeWhere((part) => part.isEmpty);
 
+    // 路径变化后自动滚动到末尾
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (_breadcrumbController.hasClients) {
+        _breadcrumbController.animateTo(
+          _breadcrumbController.position.maxScrollExtent,
+          duration: const Duration(milliseconds: 200),
+          curve: Curves.easeOut,
+        );
+      }
+    });
+
     return SizedBox(
       height: 40,
       child: ListView(
-        key: const PageStorageKey('mobile_breadcrumb'),
+        controller: _breadcrumbController,
         scrollDirection: Axis.horizontal,
         children: [
           _buildBreadcrumbChip(
@@ -328,6 +343,11 @@ class _FilesPageState extends State<FilesPage> {
       ),
       Consumer<FileManagerProvider>(
         builder: (context, fileManager, child) {
+          return _buildSortMenu(fileManager);
+        },
+      ),
+      Consumer<FileManagerProvider>(
+        builder: (context, fileManager, child) {
           return IconButton(
             icon: Icon(fileManager.isLoading ? Icons.hourglass_empty : Icons.refresh),
             onPressed: () => fileManager.refreshFiles(),
@@ -378,6 +398,11 @@ class _FilesPageState extends State<FilesPage> {
     return [
       Consumer<FileManagerProvider>(
         builder: (context, fileManager, child) {
+          return _buildSortMenu(fileManager);
+        },
+      ),
+      Consumer<FileManagerProvider>(
+        builder: (context, fileManager, child) {
           final icon = fileManager.viewType == FileViewType.list
               ? Icons.grid_view
               : Icons.view_list;
@@ -395,6 +420,39 @@ class _FilesPageState extends State<FilesPage> {
         },
       ),
     ];
+  }
+
+  Widget _buildSortMenu(FileManagerProvider fileManager) {
+    final allOptions = [
+      for (final field in SortField.values)
+        for (final dir in SortDirection.values) SortOption(field, dir),
+    ];
+
+    return PopupMenuButton<SortOption>(
+      icon: const Icon(LucideIcons.arrowUpDown),
+      tooltip: '排序',
+      position: PopupMenuPosition.under,
+      onSelected: (option) => fileManager.setSortOption(option),
+      itemBuilder: (context) => allOptions.map((option) {
+        final isSelected = fileManager.sortOption == option;
+        return PopupMenuItem<SortOption>(
+          value: option,
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (isSelected)
+                Padding(
+                  padding: const EdgeInsets.only(right: 8),
+                  child: Icon(Icons.check, size: 16, color: Theme.of(context).colorScheme.primary),
+                )
+              else
+                const SizedBox(width: 24),
+              Text(option.menuLabel),
+            ],
+          ),
+        );
+      }).toList(),
+    );
   }
 
   // ---- SpeedDial FAB ----
@@ -758,7 +816,11 @@ class _FilesPageState extends State<FilesPage> {
 
     return Column(
       children: [
-        if (isDesktop) FileListHeader(showCheckbox: showCheckbox),
+        if (isDesktop) FileListHeader(
+          showCheckbox: showCheckbox,
+          currentSort: fileManager.sortOption,
+          onSort: (option) => fileManager.setSortOption(option),
+        ),
         Expanded(
           child: RefreshIndicator(
             onRefresh: () => _onRefresh(fileManager),

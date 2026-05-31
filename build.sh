@@ -99,6 +99,9 @@ EOF
 }
 
 function build_sync_core() {
+    echo "🦀 添加 Rust Android abi平台构建支持"
+    rustup target add aarch64-linux-android armv7-linux-androideabi i686-linux-android x86_64-linux-android
+
     echo "🦀 进入 Rust sync_core 目录"
     cd native 
     # cargo clean

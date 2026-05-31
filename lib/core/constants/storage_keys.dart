@@ -34,6 +34,9 @@ class StorageKeys {
   static const String syncCumStats = 'sync_cum_stats';
   static const String clientId = 'client_id';
 
+  // 文件排序
+  static const String fileSortOption = 'file_sort_option';
+
   // 日志级别
   static const String logLevel = 'app_log_level';
 
