@@ -119,6 +119,15 @@ impl SyncEngine {
                 let _ = self.db.delete_file_mapping(&root_id, &relative).await;
                 self.suppress_paths.insert(relative.clone(), std::time::Instant::now());
 
+                // MirrorFUSE: 远程删除 → 从 FUSE inode 缓存移除
+                #[cfg(feature = "linux-fuse")]
+                if is_mirror_wcf {
+                    let adapter = self.fuse_adapter.lock().unwrap();
+                    if let Some(ref fuse) = *adapter {
+                        fuse.remove_inode(&relative);
+                    }
+                }
+
                 // MirrorWcf: 远程删除 → 删本地，记录统计
                 if is_mirror_wcf && existed {
                     self._record_wcf_stats(&relative, TaskActionType::DeleteLocal, 0, None).await;

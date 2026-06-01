@@ -1,16 +1,16 @@
-/// 平台适配器 trait — 各平台（Windows WCF / Linux / Android）实现此接口
-#[cfg(feature = "windows-cfapi")]
+/// 平台适配器 trait — 各平台（Windows WCF / Linux FUSE / Android）实现此接口
+#[cfg(any(feature = "windows-cfapi", feature = "linux-fuse"))]
 use async_trait::async_trait;
-#[cfg(feature = "windows-cfapi")]
+#[cfg(any(feature = "windows-cfapi", feature = "linux-fuse"))]
 use crate::errors::Result;
-#[cfg(feature = "windows-cfapi")]
+#[cfg(any(feature = "windows-cfapi", feature = "linux-fuse"))]
 use crate::models::{LocalFileEvent, RemoteFileEntry};
-#[cfg(feature = "windows-cfapi")]
+#[cfg(any(feature = "windows-cfapi", feature = "linux-fuse"))]
 use std::path::Path;
-#[cfg(feature = "windows-cfapi")]
+#[cfg(any(feature = "windows-cfapi", feature = "linux-fuse"))]
 use tokio::sync::mpsc;
 
-#[cfg(feature = "windows-cfapi")]
+#[cfg(any(feature = "windows-cfapi", feature = "linux-fuse"))]
 #[async_trait]
 pub trait PlatformAdapter: Send + Sync {
     /// 初始同步后的平台初始化
@@ -34,3 +34,6 @@ pub trait PlatformAdapter: Send + Sync {
 
 #[cfg(feature = "windows-cfapi")]
 pub mod wcf;
+
+#[cfg(feature = "linux-fuse")]
+pub mod fuse;

@@ -5,9 +5,11 @@ mod remote_events;
 mod album;
 #[cfg(feature = "windows-cfapi")]
 mod wcf;
+#[cfg(feature = "linux-fuse")]
+mod fuse;
 
-// 非 WCF feature 下的 stub 方法，供 remote_events.rs 编译通过
-#[cfg(not(feature = "windows-cfapi"))]
+// 非 WCF/FUSE feature 下的 stub 方法，供 remote_events.rs 编译通过
+#[cfg(not(any(feature = "windows-cfapi", feature = "linux-fuse")))]
 impl SyncEngine {
     async fn _create_placeholder_for_remote(
         &self,
@@ -16,7 +18,7 @@ impl SyncEngine {
         _local_root: &std::path::Path,
         _root_id: &str,
     ) {
-        // MirrorWcf 模式在非 Windows 平台不可用，此方法不应被调用
+        // MirrorWcf 模式在非 Windows/Linux-FUSE 平台不可用，此方法不应被调用
     }
 }
 
@@ -66,6 +68,15 @@ pub struct SyncEngine {
     /// 缓存的本地同步根路径（WCF 清理时同步读取，避免 await）
     #[cfg(feature = "windows-cfapi")]
     cached_local_root: std::sync::Mutex<std::path::PathBuf>,
+    /// FUSE 平台适配器（仅 MirrorWcf + linux-fuse 模式下初始化）
+    #[cfg(feature = "linux-fuse")]
+    fuse_adapter: std::sync::Mutex<Option<Arc<crate::platform::fuse::FusePlatformAdapter>>>,
+    /// FUSE 水合请求接收端（在适配器初始化时提取）
+    #[cfg(feature = "linux-fuse")]
+    fuse_fetch_rx: std::sync::Mutex<Option<tokio::sync::mpsc::Receiver<crate::platform::fuse::FuseFetchRequest>>>,
+    /// FUSE 水合缓存：uri → 已下载的完整文件数据
+    #[cfg(feature = "linux-fuse")]
+    hydration_cache: Arc<DashMap<String, (Vec<u8>, std::time::Instant)>>,
 }
 
 impl SyncEngine {
@@ -127,6 +138,12 @@ impl SyncEngine {
             hydration_cache: Arc::new(DashMap::new()),
             #[cfg(feature = "windows-cfapi")]
             cached_local_root: std::sync::Mutex::new(std::path::PathBuf::new()),
+            #[cfg(feature = "linux-fuse")]
+            fuse_adapter: std::sync::Mutex::new(None),
+            #[cfg(feature = "linux-fuse")]
+            fuse_fetch_rx: std::sync::Mutex::new(None),
+            #[cfg(feature = "linux-fuse")]
+            hydration_cache: Arc::new(DashMap::new()),
         })
     }
 
@@ -194,6 +211,12 @@ impl SyncEngine {
         #[cfg(feature = "windows-cfapi")]
         {
             self.cleanup_wcf();
+        }
+
+        // 2b. 清理 FUSE
+        #[cfg(feature = "linux-fuse")]
+        {
+            self.cleanup_fuse();
         }
 
         // 3. 终止所有活跃 Worker

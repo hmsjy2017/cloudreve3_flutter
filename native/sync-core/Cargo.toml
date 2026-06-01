@@ -67,6 +67,8 @@ windows = { version = "0.58", optional = true }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 sync-linux = { path = "../sync-linux", optional = true }
+fuser = { version = "0.15", optional = true }
+libc = { version = "0.2", optional = true }
 
 [target.'cfg(target_os = "android")'.dependencies]
 sync-android = { path = "../sync-android", optional = true }
@@ -78,6 +80,7 @@ log = "0.4"
 default = []
 windows-cfapi = ["sync-windows", "windows"]
 linux-notify = ["sync-linux"]
+linux-fuse = ["fuser", "libc"]
 android-media = ["sync-android", "jni"]
 event_sink_enabled = []
 

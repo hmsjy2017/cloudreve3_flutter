@@ -42,6 +42,7 @@ dist/
 native/target
 native/logs
 sync_refactory.md
+linux-fuse.md
 tools/*
 *.diff
 android/app/src/main/jniLibs/*

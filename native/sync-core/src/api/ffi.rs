@@ -590,8 +590,10 @@ pub async fn create_cloud_album_dirs(base_uri: String) -> Result<(), SyncErrorFf
 pub fn register_sync_event_sink(sink: crate::frb_generated::StreamSink<SyncEventFfi>) -> Result<(), SyncErrorFfi> {
     tracing::debug!("[FFI] register_sync_event_sink ←");
     let engine = get_engine()?;
-    // 使用 tokio runtime 注册
-    let rt = tokio::runtime::Handle::current();
+    // flutter_rust_bridge 可能在非 Tokio 线程调用此同步函数，
+    // 使用 spawn_blocking + block_on 确保 runtime 上下文可用
+    let rt = tokio::runtime::Runtime::new()
+        .map_err(|e| SyncErrorFfi::InternalError { message: format!("创建 Tokio runtime 失败: {}", e) })?;
     rt.block_on(engine.register_event_sink(sink));
     Ok(())
 }

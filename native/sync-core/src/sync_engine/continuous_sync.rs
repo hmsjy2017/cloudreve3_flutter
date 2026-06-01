@@ -46,6 +46,16 @@ impl SyncEngine {
         #[cfg(not(feature = "windows-cfapi"))]
         let _wcf_fetch_rx: Option<()> = None;
 
+        // MirrorFUSE: 取走 FUSE 水合请求接收端
+        #[cfg(feature = "linux-fuse")]
+        let mut fuse_fetch_rx = if matches!(sync_mode, SyncMode::MirrorWcf) {
+            self.fuse_fetch_rx.lock().unwrap().take()
+        } else {
+            None
+        };
+        #[cfg(not(feature = "linux-fuse"))]
+        let _fuse_fetch_rx: Option<()> = None;
+
         let mut debounce = crate::event_handler::EventDebouncer::new(
             std::time::Duration::from_millis(500),
         );
@@ -105,6 +115,29 @@ impl SyncEngine {
                         #[cfg(feature = "windows-cfapi")]
                         self.handle_wcf_fetch(req, &local_root).await;
                         #[cfg(not(feature = "windows-cfapi"))]
+                        let _: () = req;
+                    }
+                }
+
+                // FUSE 水合请求（仅 MirrorFUSE）
+                request = async {
+                    #[cfg(feature = "linux-fuse")]
+                    {
+                        match &mut fuse_fetch_rx {
+                            Some(rx) => rx.recv().await,
+                            None => std::future::pending().await,
+                        }
+                    }
+                    #[cfg(not(feature = "linux-fuse"))]
+                    {
+                        let _: Option<()> = std::future::pending().await;
+                        None::<()>
+                    }
+                } => {
+                    if let Some(req) = request {
+                        #[cfg(feature = "linux-fuse")]
+                        self.handle_fuse_read(req, &local_root).await;
+                        #[cfg(not(feature = "linux-fuse"))]
                         let _: () = req;
                     }
                 }

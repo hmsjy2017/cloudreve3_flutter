@@ -3,18 +3,52 @@
 ### fastforge 不好用, 还是手写吧
 set -e
 
+function build_linux_dependencies() {
+    # 检查 rustc 和 cargo 是否都在 PATH 中
+    if ! command -v rustc &> /dev/null || ! command -v cargo &> /dev/null; then
+        echo "⚠️ 未检测到 Rust 环境，准备安装..."
+
+        # 尝试加载可能已存在但未生效的环境变量
+        if [ -f "$HOME/.cargo/env" ]; then
+            source "$HOME/.cargo/env"
+        fi
+
+        # 再次检查，如果还是没有，则进行安装
+        if ! command -v rustc &> /dev/null; then
+            echo "正在通过 rustup 安装 Rust..."
+            # -y 表示自动化安装，不询问用户确认
+            # --default-toolchain stable 确保安装稳定版
+            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+            
+            # 立即在当前 shell 进程中激活 Rust
+            source "$HOME/.cargo/env"
+        fi
+    else
+        echo "✅ Rust 环境已就绪: $(rustc --version)"
+    fi
+
+    echo "正在安装 Linux 构建依赖..."
+    sudo apt upgrade -y
+    sudo apt install -y libsqlite3-dev libmpv-dev libgtk-3-dev libglib2.0-dev libcanberra-gtk3-dev libcanberra-gtk3-dev libpango1.0-dev libcairo2-dev libcairo2-dev libpulse-dev libayatana-appindicator3-dev libwpewebkit-2.0-dev libwpebackend-fdo-1.0-dev libsecret-1-dev libfuse3-dev libasound2-dev ninja-build cmake pkg-config build-essential
+}
+
 function build_linux_release() { 
+
+    build_linux_dependencies
+
     # 1. 基础变量配置
     APP_NAME="cloudreve4"
     PROJECT_DIR=$(pwd)
     FLUTTER_BUNDLE="$PROJECT_DIR/build/linux/x64/release/bundle"
     PKG_DIR="$PROJECT_DIR/dist/debian"
     # 获取版本号
-    Version=$(grep '^version:' pubspec.yaml | cut -d ' ' -f 2 | tr -d '\r')
+    RAW_VERION=$(grep '^version:' pubspec.yaml | sed 's/version: //;s/\"//g;s/ //g' | tr -d '\r')
+    # debian 版本号
+    DebVersion=$(echo $RAW_VERION | sed 's/+/-/g')
 
     # 2. 编译 Linux 版本
     echo "正在编译 Flutter Linux Release 版本..."
-    flutter build linux -v --release
+    pxc -q flutter build linux -v --release
 
     # 3. 创建临时目录结构
     if [ -d "$PKG_DIR" ]; then
@@ -29,7 +63,7 @@ function build_linux_release() {
     mkdir -p "$PKG_DIR/DEBIAN"
 
     # 4. 安装到 /opt
-    cp -r "$FLUTTER_BUNDLE/"* "$PKG_DIR/opt/$APP_NAME/"
+    cp -rf "$FLUTTER_BUNDLE/"* "$PKG_DIR/opt/$APP_NAME/"
 
     # 5. 在 /usr/bin 创建软链接，方便终端直接输入命令启动
     ln -sf "/opt/$APP_NAME/${APP_NAME}_flutter" "$PKG_DIR/usr/bin/$APP_NAME"
@@ -42,7 +76,6 @@ function build_linux_release() {
     # # 必须：Flutter Linux 应用的基础图形库
     # - libgtk-3-0
     # - libglib2.0-0
-    # - libcanberra-gtk-module
     # - libcanberra-gtk3-module
     # # 建议：涉及 PDF 渲染或某些窗口特性
     # - libpango-1.0-0
@@ -50,19 +83,42 @@ function build_linux_release() {
     # # 建议：多媒体应用常见的音频与底层依赖
     # - libasound2
     # - libpulse0
+    # # 托盘 tray_manager
+    # - libayatana-appindicator3-1, 
+    # # windows/linux webview - flutter_inappwebview 
+    # - libwpewebkit-2.0-1, 
+    # - libwpebackend-fdo-1.0-1, 
+    # - libsecret-1-0, 
+    # # 同步引擎镜像 feature 必须
+    # - fuse3, 
+    # - ## libfuse3-3
+
+    APP_DEPENDS='libsqlite3-0, libmpv2, libcanberra-gtk3-module, libasound2, libpulse0, libayatana-appindicator3-1, libwpewebkit-2.0-1, libwpebackend-fdo-1.0-1, libsecret-1-0, fuse3'
 
     # 6. 写入控制文件 
     cat <<EOE | tee "$PKG_DIR/DEBIAN/control"
-Package: com.limo.cloudreve
-Version: ${Version}
+Package: ${APP_NAME}-flutter
+Description: A GUI client built using Cloudreve V4 and Flutter.
+Source: https://github.com/LimoYuan/cloudreve4_flutter
+Version: ${DebVersion}
+Architecture: amd64
 Section: utils
 Priority: optional
-Architecture: amd64
-Depends: libsqlite3-0, libmpv-dev, libmpv2, libgtk-3-0, libglib2.0-0, libcanberra-gtk-module, libcanberra-gtk3-module, libpango-1.0-0, libcairo2, libasound2, libpulse0, libayatana-appindicator3-dev
-Maintainer: Aeno yuan705791627@gmail.com
-Description: A GUI client built using Cloudreve V4 and Flutter.
+Maintainer: aeno yuan705791627@gmail.com
 EOE
 
+    # 应用依赖
+    echo "🔍 正在分析二进制文件依赖..."
+    ln -sf "$PKG_DIR/DEBIAN" "$PKG_DIR/debian"
+    cd ${PKG_DIR} 
+    
+    RAW_DEPENDS=$(dpkg-shlibdeps -l./opt/cloudreve4/lib/ -O ./opt/cloudreve4/cloudreve4_flutter 2>/dev/null | sed 's/shlibs:Depends=//')
+    
+    rm -rf "$PKG_DIR/debian" && cd - 
+    echo "✅ 二进制依赖 RAW: $RAW_DEPENDS"
+    echo "✅ 完整依赖"
+    echo "Depends: ${RAW_DEPENDS}, ${APP_DEPENDS}" | tee -a "$PKG_DIR/DEBIAN/control"
+    echo
     # 7. 图标和桌面入口
     cat <<EOT | tee "$PKG_DIR/usr/share/applications/$APP_NAME.desktop"
 [Desktop Entry]
@@ -89,13 +145,13 @@ EOF
     chmod +x "$PKG_DIR/opt/$APP_NAME/${APP_NAME}_flutter"
 
     # 9. 打包
-    OUTPUT_NAME="cloudreve4_flutter_v${Version}_linux_amd64.deb"
-    dpkg-deb --build "$PKG_DIR" "${PKG_DIR}/$OUTPUT_NAME"
+    OUTPUT_NAME="cloudreve4_flutter_v${DebVersion}_linux_amd64.deb"
+    dpkg-deb --root-owner-group --build "$PKG_DIR" "${PKG_DIR}/$OUTPUT_NAME"
 
     echo "--------------------------------------"
     echo "✅ 构建完成！"
     echo "安装包已生成: $OUTPUT_NAME"
-    echo "安装命令: sudo apt install ./${OUTPUT_NAME}"
+    echo "安装命令: sudo apt install ${PKG_DIR}/${OUTPUT_NAME}"
 }
 
 function build_sync_core() {

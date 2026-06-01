@@ -149,6 +149,7 @@ else()
         COMMAND ${CARGO_CMD} build ${CARGO_PROFILE}
             --manifest-path "${SYNC_CORE_DIR}/Cargo.toml"
             --target-dir "${RUST_TARGET_DIR}"
+            --features sync-core/linux-fuse,sync-core/event_sink_enabled
         COMMENT "Building Rust sync engine..."
     )
 

@@ -136,7 +136,7 @@ class _SyncSettingsPageState extends State<SyncSettingsPage> {
                           },
                     child: Column(
                       children: [
-                        if (Platform.isWindows)
+                        if (Platform.isWindows || Platform.isLinux)
                           RadioListTile<String>(
                             title: Row(
                               mainAxisSize: MainAxisSize.min,
@@ -465,7 +465,7 @@ class _SyncSettingsPageState extends State<SyncSettingsPage> {
     } else if (newMode == 'mirror_wcf') {
       final confirmed = await _showModeConfirmDialog(
         title: '镜像同步',
-        description: '此模式下（仅 Windows）：\n\n'
+        description: '此模式下（仅 Windows | Linux）：\n\n'
             '• 远程文件以占位符形式出现在本地\n'
             '• 占位符不占用磁盘空间，但在资源管理器中可见\n'
             '• 打开文件时自动从云端下载（水合）\n'

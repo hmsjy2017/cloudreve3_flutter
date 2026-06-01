@@ -96,6 +96,28 @@ impl SyncEngine {
             }
         }
 
+        // MirrorFUSE 模式：初始化 FUSE 平台适配器
+        #[cfg(feature = "linux-fuse")]
+        if matches!(sync_mode, SyncMode::MirrorWcf) {
+            let already_initialized = self.fuse_adapter.lock().unwrap().is_some();
+            if !already_initialized {
+                let config = self.config.read().await;
+                let mount_path = config.local_root.join(".cloudreve_fuse");
+                let adapter = crate::platform::fuse::FusePlatformAdapter::new(
+                    &mount_path,
+                    self.db.clone(),
+                    self.api.clone(),
+                    config.clone(),
+                ).map_err(|e| crate::errors::SyncError::Internal(e.to_string()))?;
+                let fetch_rx = adapter.take_fetch_receiver();
+                *self.fuse_fetch_rx.lock().unwrap() = fetch_rx;
+                *self.fuse_adapter.lock().unwrap() = Some(std::sync::Arc::new(adapter));
+                tracing::info!("MirrorFUSE: FUSE 平台适配器已初始化, 挂载点={}", mount_path.display());
+            } else {
+                tracing::info!("MirrorFUSE: FUSE 平台适配器已存在，跳过重复初始化");
+            }
+        }
+
         let result = self.worker_pool.submit(
             plan, worker_config, WorkerTrigger::InitialSync, conflict_resolver,
         ).await;
