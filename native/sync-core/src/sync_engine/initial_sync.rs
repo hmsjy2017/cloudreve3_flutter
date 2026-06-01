@@ -135,9 +135,9 @@ impl SyncEngine {
                     );
                 }
 
-                let fetch_rx = adapter.take_fetch_receiver();
-                if let Ok(mut rx) = self.fuse_fetch_rx.lock() {
-                    *rx = fetch_rx;
+                let request_rx = adapter.take_request_receiver();
+                if let Ok(mut rx) = self.fuse_request_rx.lock() {
+                    *rx = request_rx;
                 }
                 if let Ok(mut adapter_guard) = self.fuse_adapter.lock() {
                     *adapter_guard = Some(std::sync::Arc::new(adapter));

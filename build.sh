@@ -32,9 +32,56 @@ function build_linux_dependencies() {
     sudo apt install -y libsqlite3-dev libmpv-dev libgtk-3-dev libglib2.0-dev libcanberra-gtk3-dev libcanberra-gtk3-dev libpango1.0-dev libcairo2-dev libcairo2-dev libpulse-dev libayatana-appindicator3-dev libwpewebkit-2.0-dev libwpebackend-fdo-1.0-dev libsecret-1-dev libfuse3-dev libasound2-dev ninja-build cmake pkg-config build-essential
 }
 
+function linux_flutter_plugin_magick() {
+    # Get current flutter mirror 
+    FLUTTER_MIRROR=$(grep 'url:' pubspec.lock | head -n 1 | sed 's|.*url: "https://\(.*\)"|\1|')
+    BASE_PUB_CACHEDIR="$HOME/.pub-cache/hosted/${FLUTTER_MIRROR}"
+    echo "🧙‍♂️ Flutter mirror cache path: ${BASE_PUB_CACHEDIR}"
+    ## magick tray_manager ##
+    echo "🧙‍♂️ 尝试为 tray_manager 添加补丁..."
+    # 1. 拼接完整的插件 CMake 路径
+    TARY_MANAGER_VERION=$(grep -A 8 'tray_manager:' pubspec.lock | grep 'version:' | cut -d'"' -f2)
+    TARY_MANAGER_PATH_CMAKE="${BASE_PUB_CACHEDIR}/tray_manager-${TARY_MANAGER_VERION}/linux/CMakeLists.txt"
+    echo "🧙‍♂️ 获取 tray_manager CMakeLists.txt 路径: ${TARY_MANAGER_PATH_CMAKE}"
+    # 2. 在文件存在且不包含该定义时进行 patch
+    if [ -f "$TARY_MANAGER_PATH_CMAKE" ]; then
+        if ! grep -q "deprecated-declarations" "$TARY_MANAGER_PATH_CMAKE"; then
+            echo "🧙‍♂️ 正在为 tray_manager 注入补丁..."
+            # 使用 sed 在 project( 行后插入定义
+            sed -i '/project(/a add_definitions(-Wno-error=deprecated-declarations)' "$TARY_MANAGER_PATH_CMAKE"
+        else
+            echo "✅ tray_manager 补丁已存在，跳过注入。"
+        fi
+    else
+        echo "⚠️ 警告：未找到路径 $TARY_MANAGER_PATH_CMAKE"
+    fi
+
+    ## magick flutter_inappwebview ## 
+    echo "🧙‍♂️ 尝试为 flutter_inappwebview 添加补丁..."
+    INAPPWEBVIEW_LINUX_VERION=$(grep -A 8 'flutter_inappwebview_linux:' pubspec.lock | grep 'version:' | cut -d'"' -f2)
+    INAPPWEBVIEW_LINUX_PATH_CC="${BASE_PUB_CACHEDIR}/flutter_inappwebview_linux-${INAPPWEBVIEW_LINUX_VERION}/linux/in_app_webview/in_app_webview.cc"
+    echo "🧙‍♂️ 获取 flutter_inappwebview_linux .cc 路径: ${INAPPWEBVIEW_LINUX_PATH_CC}"
+
+    if [ -f "$INAPPWEBVIEW_LINUX_PATH_CC" ]; then
+        # 检查是否已经修改过（搜索注入的 FALSE; //）
+        if ! grep -q "hasColor = FALSE; //" "$INAPPWEBVIEW_LINUX_PATH_CC"; then
+            echo "🧙‍♂️ 正在施展 WebView 透明背景黑魔法..."
+            sed -i 's/gboolean hasColor = webkit_web_view_get_theme_color/gboolean hasColor = FALSE; \/\/ /g' "$INAPPWEBVIEW_LINUX_PATH_CC"
+        else
+            echo "✅ WebView 透明补丁已存在，无需重复施法。"
+        fi
+    else
+        echo "⚠️ 找不到文件: $WEBVIEW_CC_PATH"
+    fi
+}
+
 function build_linux_release() { 
 
     build_linux_dependencies
+
+    flutter pub get
+
+    linux_flutter_plugin_magick
 
     # 1. 基础变量配置
     APP_NAME="cloudreve4"

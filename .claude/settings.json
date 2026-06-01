@@ -48,7 +48,8 @@
       "Bash(sudo apt-get install -y libfuse3-dev)",
       "Bash(grep -n \"pub fn mount2\" /home/aeno/.cargo/registry/src/mirrors.ustc.edu.cn-38d0e5eb5da2abae/fuser-0.15.1/src/lib.rs)",
       "Read(//home/aeno/.cargo/registry/src/mirrors.ustc.edu.cn-38d0e5eb5da2abae/fuser-0.15.1/src/**)",
-      "Bash(cargo clippy *)"
+      "Bash(cargo clippy *)",
+      "Read(//home/aeno/.cargo/registry/src/**)"
     ],
     "additionalDirectories": [
       "/home/aeno/Documents/cloudreve4_flutter4_flutter/lib/presentation/widgets",

@@ -328,6 +328,35 @@ impl SyncDb {
         Ok(result)
     }
 
+    /// 删除指定 remote_uri 的文件映射
+    pub async fn delete_mapping_by_remote_uri(
+        &self,
+        sync_root_id: &str,
+        remote_uri: &str,
+    ) -> Result<()> {
+        let conn = self.write_conn.lock().await;
+        conn.execute(
+            "DELETE FROM file_mapping WHERE sync_root_id = ?1 AND remote_uri = ?2",
+            rusqlite::params![sync_root_id, remote_uri],
+        )?;
+        Ok(())
+    }
+
+    /// 更新文件映射的 remote_uri（重命名/移动时使用）
+    pub async fn update_mapping_remote_uri(
+        &self,
+        sync_root_id: &str,
+        old_remote_uri: &str,
+        new_remote_uri: &str,
+    ) -> Result<()> {
+        let conn = self.write_conn.lock().await;
+        conn.execute(
+            "UPDATE file_mapping SET remote_uri = ?3 WHERE sync_root_id = ?1 AND remote_uri = ?2",
+            rusqlite::params![sync_root_id, old_remote_uri, new_remote_uri],
+        )?;
+        Ok(())
+    }
+
     /// 查询所有占位符文件映射（用于 WCF 退出时清理）
     #[cfg(feature = "windows-cfapi")]
     pub async fn list_placeholder_mappings(

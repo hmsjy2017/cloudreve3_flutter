@@ -71,9 +71,9 @@ pub struct SyncEngine {
     /// FUSE 平台适配器（仅 MirrorWcf + linux-fuse 模式下初始化）
     #[cfg(feature = "linux-fuse")]
     fuse_adapter: std::sync::Mutex<Option<Arc<crate::platform::fuse::FusePlatformAdapter>>>,
-    /// FUSE 水合请求接收端（在适配器初始化时提取）
+    /// FUSE 请求接收端（在适配器初始化时提取）
     #[cfg(feature = "linux-fuse")]
-    fuse_fetch_rx: std::sync::Mutex<Option<tokio::sync::mpsc::Receiver<crate::platform::fuse::FuseFetchRequest>>>,
+    fuse_request_rx: std::sync::Mutex<Option<tokio::sync::mpsc::Receiver<crate::platform::fuse::FuseRequest>>>,
     /// FUSE 水合缓存：uri → 已下载的完整文件数据
     #[cfg(feature = "linux-fuse")]
     hydration_cache: Arc<DashMap<String, (Vec<u8>, std::time::Instant)>>,
@@ -141,7 +141,7 @@ impl SyncEngine {
             #[cfg(feature = "linux-fuse")]
             fuse_adapter: std::sync::Mutex::new(None),
             #[cfg(feature = "linux-fuse")]
-            fuse_fetch_rx: std::sync::Mutex::new(None),
+            fuse_request_rx: std::sync::Mutex::new(None),
             #[cfg(feature = "linux-fuse")]
             hydration_cache: Arc::new(DashMap::new()),
         })
