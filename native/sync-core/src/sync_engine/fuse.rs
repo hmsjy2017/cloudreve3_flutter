@@ -105,7 +105,13 @@ impl SyncEngine {
         _local_root: &std::path::Path,
         _root_id: &str,
     ) {
-        let adapter = self.fuse_adapter.lock().unwrap();
+        let adapter = match self.fuse_adapter.lock() {
+            Ok(guard) => guard,
+            Err(e) => {
+                tracing::error!("FUSE adapter lock 失败: {}", e);
+                return;
+            }
+        };
         if let Some(ref fuse) = *adapter {
             let parent_rel = std::path::PathBuf::from(relative)
                 .parent()
@@ -132,7 +138,13 @@ impl SyncEngine {
 
     /// FUSE 清理（卸载挂载点）
     pub(crate) fn cleanup_fuse(&self) {
-        let adapter_opt = self.fuse_adapter.lock().unwrap().take();
+        let adapter_opt = match self.fuse_adapter.lock() {
+            Ok(mut guard) => guard.take(),
+            Err(e) => {
+                tracing::error!("FUSE adapter lock 失败: {}", e);
+                return;
+            }
+        };
         if let Some(adapter) = adapter_opt {
             if let Err(e) = adapter.unmount() {
                 tracing::warn!("FUSE 卸载失败: {}", e);

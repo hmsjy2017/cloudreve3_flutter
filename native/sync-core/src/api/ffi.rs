@@ -376,6 +376,40 @@ pub async fn init_sync_engine(config: SyncConfigFfi) -> Result<(), SyncErrorFfi>
     // 应用配置中的日志级别（热修改覆盖默认 debug）
     apply_log_level(&log_level);
 
+    // 注册 SIGINT/SIGTERM 信号处理，确保 FUSE/WCF 等资源被优雅清理
+    #[cfg(unix)]
+    {
+        tokio::spawn(async {
+            let mut sigterm = match tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()) {
+                Ok(s) => s,
+                Err(e) => {
+                    tracing::warn!("无法注册 SIGTERM 处理: {}", e);
+                    return;
+                }
+            };
+            tokio::select! {
+                _ = tokio::signal::ctrl_c() => {
+                    tracing::info!("收到 SIGINT，开始清理...");
+                }
+                _ = sigterm.recv() => {
+                    tracing::info!("收到 SIGTERM，开始清理...");
+                }
+            }
+            sync_shutdown().ok();
+            std::process::exit(0);
+        });
+    }
+    #[cfg(not(unix))]
+    {
+        tokio::spawn(async {
+            if tokio::signal::ctrl_c().await.is_ok() {
+                tracing::info!("收到 Ctrl+C，开始清理...");
+                sync_shutdown().ok();
+                std::process::exit(0);
+            }
+        });
+    }
+
     Ok(())
 }
 
@@ -391,11 +425,16 @@ pub async fn dispose_sync_engine() -> Result<(), SyncErrorFfi> {
         engine.cleanup_wcf();
     }
 
+    #[cfg(feature = "linux-fuse")]
+    {
+        engine.cleanup_fuse();
+    }
+
     tracing::info!("同步引擎已停止");
     Ok(())
 }
 
-/// 进程退出前同步清理（WCF 模式下必须调用，确保占位符释放）
+/// 进程退出前同步清理（WCF/FUSE 模式下必须调用，确保占位符释放和挂载点卸载）
 /// 此函数是同步的，不依赖 tokio runtime，可安全在 exit(0) 前调用
 #[frb]
 pub fn sync_shutdown() -> Result<(), SyncErrorFfi> {
@@ -407,6 +446,14 @@ pub fn sync_shutdown() -> Result<(), SyncErrorFfi> {
             None => return Ok(()),
         };
         engine.cleanup_wcf();
+    }
+    #[cfg(feature = "linux-fuse")]
+    {
+        let engine = match ENGINE.get() {
+            Some(e) => e,
+            None => return Ok(()),
+        };
+        engine.cleanup_fuse();
     }
     tracing::info!("同步引擎已同步清理");
     Ok(())

@@ -888,13 +888,17 @@ impl Worker {
                 }
                 let relative = &action.relative_path;
                 let local_path = self.config.local_root.join(relative);
+                let _ = &local_path; // FUSE 模式下可能未使用
 
+                // FUSE 模式下不需要创建本地目录/文件，FUSE inode 已在 initial_sync 中注册
+                #[cfg(not(feature = "linux-fuse"))]
                 if let Some(parent) = local_path.parent() {
                     let _ = tokio::fs::create_dir_all(parent).await;
                 }
 
                 if let Some(ref remote) = action.remote_entry {
                     if remote.is_dir {
+                        #[cfg(not(feature = "linux-fuse"))]
                         let _ = tokio::fs::create_dir_all(&local_path).await;
                     } else {
                         #[cfg(feature = "windows-cfapi")]
@@ -942,7 +946,11 @@ impl Worker {
                                 let _ = tokio::fs::write(&local_path, []).await;
                             }
                         }
-                        #[cfg(not(feature = "windows-cfapi"))]
+                        #[cfg(all(feature = "linux-fuse", not(feature = "windows-cfapi")))]
+                        {
+                            // FUSE 模式: inode 已在 initial_sync 中注册，无需创建本地文件
+                        }
+                        #[cfg(not(any(feature = "windows-cfapi", feature = "linux-fuse")))]
                         {
                             let _ = tokio::fs::write(&local_path, []).await;
                             tracing::warn!(

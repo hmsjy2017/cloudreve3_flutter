@@ -481,7 +481,7 @@ impl FusePlatformAdapter {
 
     /// 取走水合请求接收端（供 SyncEngine 持续同步消费）
     pub fn take_fetch_receiver(&self) -> Option<mpsc::Receiver<FuseFetchRequest>> {
-        self.fetch_rx.lock().unwrap().take()
+        self.fetch_rx.lock().ok().and_then(|mut rx| rx.take())
     }
 
     /// 获取 inode 存储（供远程事件更新）
@@ -530,17 +530,23 @@ impl FusePlatformAdapter {
         }
     }
 
-    /// 卸载 FUSE 文件系统
+    /// 卸载 FUSE 文件系统（lazy unmount，允许 busy 时延迟卸载）
     pub fn unmount(&self) -> anyhow::Result<()> {
         self.shutdown.cancel();
-        // fuser::mount 会在 cancel 后自行退出
-        // 使用 fusermount 卸载
-        let status = std::process::Command::new("fusermount")
-            .arg("-u")
-            .arg(&self.mount_path)
-            .status();
 
-        match status {
+        // 优先尝试 fusermount3 -uz（lazy unmount），回退到 fusermount -uz
+        let result = std::process::Command::new("fusermount3")
+            .args(["-u", "-z"])
+            .arg(&self.mount_path)
+            .status()
+            .or_else(|_| {
+                std::process::Command::new("fusermount")
+                    .args(["-u", "-z"])
+                    .arg(&self.mount_path)
+                    .status()
+            });
+
+        match result {
             Ok(s) if s.success() => {
                 tracing::info!("FUSE 已卸载: {}", self.mount_path.display());
                 Ok(())
@@ -551,7 +557,7 @@ impl FusePlatformAdapter {
             }
             Err(e) => {
                 tracing::warn!("FUSE 卸载命令失败: {}", e);
-                Ok(()) // 不视为致命错误
+                Ok(())
             }
         }
     }

@@ -49,7 +49,7 @@ impl SyncEngine {
         // MirrorFUSE: 取走 FUSE 水合请求接收端
         #[cfg(feature = "linux-fuse")]
         let mut fuse_fetch_rx = if matches!(sync_mode, SyncMode::MirrorWcf) {
-            self.fuse_fetch_rx.lock().unwrap().take()
+            self.fuse_fetch_rx.lock().ok().and_then(|mut rx| rx.take())
         } else {
             None
         };
