@@ -45,33 +45,35 @@ class ShareModel {
   });
 
   factory ShareModel.fromJson(Map<String, dynamic> json) {
+    final ownerRaw = json['owner'];
+    final permissionRaw = json['permission_setting'];
+    final createdAtRaw = json['created_at'] ?? json['create_date'] ?? json['createdAt'];
+    final expiresRaw = json['expires'] ?? json['expire'] ?? json['expired_at'];
+    final sourceTypeRaw = json['source_type'] ?? json['type'];
+
     return ShareModel(
-      id: json['id'] as String,
-      name: json['name'] as String,
+      id: json['id']?.toString() ?? json['key']?.toString() ?? '',
+      name: json['name']?.toString() ?? json['source_name']?.toString() ?? '',
       visited: (json['visited'] as num?)?.toInt() ?? 0,
       downloaded: (json['downloaded'] as num?)?.toInt(),
       price: (json['price'] as num?)?.toInt(),
       unlocked: json['unlocked'] as bool? ?? false,
-      sourceType: (json['source_type'] as num?)?.toInt() ?? 0,
-      owner: json['owner'] is Map<String, dynamic>
-          ? ShareOwner.fromJson(json['owner'] as Map<String, dynamic>)
-          : null,
-      createdAt: json['created_at'] != null
-          ? DateTime.parse(json['created_at'] as String)
-          : DateTime.now(),
-      expires: json['expires'] != null
-          ? DateTime.parse(json['expires'] as String)
-          : null,
+      sourceType: sourceTypeRaw is num
+          ? sourceTypeRaw.toInt()
+          : (sourceTypeRaw == 'dir' || sourceTypeRaw == 'folder' ? 1 : 0),
+      owner: ownerRaw is Map ? ShareOwner.fromJson(Map<String, dynamic>.from(ownerRaw)) : null,
+      createdAt: DateTime.tryParse(createdAtRaw?.toString() ?? '') ?? DateTime.now(),
+      expires: DateTime.tryParse(expiresRaw?.toString() ?? ''),
       expired: json['expired'] as bool? ?? false,
-      url: json['url'] as String? ?? '',
+      url: json['url']?.toString() ?? '',
       size: (json['size'] as num?)?.toInt(),
-      permissionSetting: json['permission_setting'] is Map<String, dynamic>
-          ? SharePermissionSetting.fromJson(json['permission_setting'] as Map<String, dynamic>)
+      permissionSetting: permissionRaw is Map
+          ? SharePermissionSetting.fromJson(Map<String, dynamic>.from(permissionRaw))
           : null,
       isPrivate: json['is_private'] as bool?,
-      password: json['password'] as String?,
+      password: json['password']?.toString(),
       shareView: json['share_view'] as bool?,
-      sourceUri: json['source_uri'] as String?,
+      sourceUri: json['source_uri']?.toString() ?? json['uri']?.toString(),
       showReadme: json['show_readme'] as bool?,
       passwordProtected: json['password_protected'] as bool?,
     );
@@ -125,17 +127,14 @@ class ShareOwner {
   });
 
   factory ShareOwner.fromJson(Map<String, dynamic> json) {
+    final groupRaw = json['group'];
     return ShareOwner(
-      id: json['id'] as String,
-      email: json['email'] as String?,
-      nickname: json['nickname'] as String,
-      createdAt: json['created_at'] != null
-          ? DateTime.parse(json['created_at'] as String)
-          : DateTime.now(),
-      group: json['group'] is Map<String, dynamic>
-          ? ShareOwnerGroup.fromJson(json['group'] as Map<String, dynamic>)
-          : null,
-      shareLinksInProfile: json['share_links_in_profile'] as String?,
+      id: json['id']?.toString() ?? '',
+      email: json['email']?.toString(),
+      nickname: json['nickname']?.toString() ?? json['user_name']?.toString() ?? '',
+      createdAt: DateTime.tryParse(json['created_at']?.toString() ?? '') ?? DateTime.now(),
+      group: groupRaw is Map ? ShareOwnerGroup.fromJson(Map<String, dynamic>.from(groupRaw)) : null,
+      shareLinksInProfile: json['share_links_in_profile']?.toString(),
     );
   }
 
@@ -160,8 +159,8 @@ class ShareOwnerGroup {
 
   factory ShareOwnerGroup.fromJson(Map<String, dynamic> json) {
     return ShareOwnerGroup(
-      id: json['id'] as String,
-      name: json['name'] as String,
+      id: json['id']?.toString() ?? '',
+      name: json['name']?.toString() ?? '',
     );
   }
 
@@ -188,15 +187,18 @@ class SharePermissionSetting {
 
   factory SharePermissionSetting.fromJson(Map<String, dynamic> json) {
     return SharePermissionSetting(
-      sameGroup: json['same_group'] as String?,
-      other: json['other'] as String?,
-      anonymous: json['anonymous'] as String?,
-      everyone: json['everyone'] as String?,
-      groupExplicit: (json['group_explicit'] as Map<String, dynamic>?)
-          ?.cast<String, String>(),
-      userExplicit: (json['user_explicit'] as Map<String, dynamic>?)
-          ?.cast<String, String>(),
+      sameGroup: json['same_group']?.toString(),
+      other: json['other']?.toString(),
+      anonymous: json['anonymous']?.toString(),
+      everyone: json['everyone']?.toString(),
+      groupExplicit: _stringMap(json['group_explicit']),
+      userExplicit: _stringMap(json['user_explicit']),
     );
+  }
+
+  static Map<String, String>? _stringMap(dynamic value) {
+    if (value is! Map) return null;
+    return value.map((key, val) => MapEntry(key.toString(), val.toString()));
   }
 
   Map<String, dynamic> toJson() {

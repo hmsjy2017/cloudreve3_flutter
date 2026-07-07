@@ -5,6 +5,7 @@ import '../config/api_config.dart';
 import '../services/storage_service.dart';
 import '../core/exceptions/app_exception.dart';
 import '../core/utils/app_logger.dart';
+import 'cloudreve_v3_compat.dart';
 
 /// API响应
 class ApiResponse<T> {
@@ -23,12 +24,13 @@ class ApiResponse<T> {
   });
 
   factory ApiResponse.fromJson(Map<String, dynamic> json) {
+    final codeRaw = json['code'];
     return ApiResponse<T>(
-      code: json['code'] as int? ?? 0,
-      message: json['msg'] as String? ?? '',
+      code: codeRaw is num ? codeRaw.toInt() : int.tryParse(codeRaw?.toString() ?? '') ?? 0,
+      message: (json['msg'] ?? json['message'])?.toString() ?? '',
       data: json['data'],
-      error: json['error'] as String?,
-      correlationId: json['correlation_id'] as String?,
+      error: json['error']?.toString(),
+      correlationId: json['correlation_id']?.toString(),
     );
   }
 
@@ -44,6 +46,8 @@ class ApiService {
   bool _isRefreshing = false;
   final List<Completer<void>> _refreshSubscribers = [];
   bool _initialized = false;
+
+  bool get _isCloudreveV3 => CloudreveV3Compat.isV3BaseUrl(_dio.options.baseUrl);
 
   /// 获取 token 的回调
   Future<String?> Function()? getTokenCallback;
@@ -105,14 +109,14 @@ class ApiService {
     if (_initialized) return;
 
     final baseUrl = await ApiConfig.baseUrl;
-    _dio.options.baseUrl = baseUrl;
+    _dio.options.baseUrl = CloudreveV3Compat.normalizeBaseUrl(baseUrl);
     _initialized = true;
   }
 
   /// 动态设置 API baseUrl
   Future<void> setBaseUrl(String baseUrl) async {
-    _dio.options.baseUrl = baseUrl;
-    AppLogger.d('ApiService baseUrl 已更新为: $baseUrl');
+    _dio.options.baseUrl = CloudreveV3Compat.normalizeBaseUrl(baseUrl);
+    AppLogger.d('ApiService baseUrl 已更新为: ${_dio.options.baseUrl}');
   }
 
   /// 请求拦截器
@@ -123,9 +127,21 @@ class ApiService {
         if (getTokenCallback != null) {
           final token = await getTokenCallback!();
           if (token != null && token.isNotEmpty) {
-            options.headers['Authorization'] = 'Bearer $token';
+            if (_isCloudreveV3) {
+              CloudreveV3Compat.applyAuthHeader(options, token);
+            } else {
+              options.headers['Authorization'] = 'Bearer $token';
+            }
           }
         }
+        if (_isCloudreveV3) {
+          final synthetic = CloudreveV3Compat.syntheticResponse(options);
+          if (synthetic != null) {
+            return handler.resolve(synthetic);
+          }
+          CloudreveV3Compat.translateRequest(options);
+        }
+
         // 附加 X-Cr-Client-Id，服务端据此过滤 SSE 自身事件
         try {
           final clientId = await StorageService.instance.getOrCreateClientId();
@@ -144,10 +160,15 @@ class ApiService {
           'API Response: ${response.statusCode} - ${response.requestOptions.uri}',
         );
 
+        if (_isCloudreveV3) {
+          response.data = CloudreveV3Compat.translateResponse(response);
+        }
+
         // 检查 JSON 响应中的 code 字段
         if (response.data is Map<String, dynamic>) {
           final data = response.data as Map<String, dynamic>;
-          final code = data['code'] as int?;
+          final codeRaw = data['code'];
+          final code = codeRaw is num ? codeRaw.toInt() : int.tryParse(codeRaw?.toString() ?? '');
           AppLogger.d('_responseInterceptor -> JSON code: $code');
           if (code == 401) {
             // HTTP 200 但 JSON code 是 401，需要处理未授权
@@ -223,7 +244,8 @@ class ApiService {
         bool is401Error = error.response?.statusCode == 401;
         if (!is401Error && error.response?.data is Map<String, dynamic>) {
           final data = error.response!.data as Map<String, dynamic>;
-          is401Error = data['code'] == 401;
+          final codeRaw = data['code'];
+          is401Error = (codeRaw is num ? codeRaw.toInt() : int.tryParse(codeRaw?.toString() ?? '')) == 401;
         }
 
         if (is401Error) {
@@ -241,7 +263,9 @@ class ApiService {
         // 检查是否是凭证过期错误（code 40020）
         if (error.response?.data is Map<String, dynamic>) {
           final data = error.response!.data as Map<String, dynamic>;
-          if (data['code'] == 40020) {
+          final codeRaw = data['code'];
+          final code = codeRaw is num ? codeRaw.toInt() : int.tryParse(codeRaw?.toString() ?? '');
+          if (code == 40020) {
             _handleCredentialExpired();
             return handler.next(error);
           }
