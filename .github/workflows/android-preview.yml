@@ -1,0 +1,109 @@
+name: Android Preview Release
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+      - master
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+  FLUTTER_CHANNEL: stable
+  ANDROID_NDK_VERSION: 27.0.12077973
+  ANDROID_COMPILE_SDK: 36
+  ANDROID_BUILD_TOOLS: 36.0.0
+  PREVIEW_RELEASE_TAG: preview
+  PREVIEW_RELEASE_TITLE: Preview
+
+jobs:
+  build-preview-apk:
+    name: Build and publish preview APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android platform and NDK
+        run: |
+          sdkmanager --install "platforms;android-${ANDROID_COMPILE_SDK}" "build-tools;${ANDROID_BUILD_TOOLS}" "ndk;${ANDROID_NDK_VERSION}"
+          echo "ANDROID_NDK_HOME=${ANDROID_HOME}/ndk/${ANDROID_NDK_VERSION}" >> "$GITHUB_ENV"
+          echo "ANDROID_NDK_ROOT=${ANDROID_HOME}/ndk/${ANDROID_NDK_VERSION}" >> "$GITHUB_ENV"
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: ${{ env.FLUTTER_CHANNEL }}
+          cache: true
+
+      - name: Set up Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android,armv7-linux-androideabi,x86_64-linux-android
+
+      - name: Install cargo-ndk
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-ndk
+
+      - name: Cache Cargo registry and build output
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            native/target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('native/Cargo.lock', 'native/**/Cargo.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+      - name: Resolve Flutter dependencies
+        run: flutter pub get
+
+      - name: Build Rust sync core for Android
+        working-directory: native
+        run: |
+          cargo ndk \
+            -t arm64-v8a \
+            -t armeabi-v7a \
+            -t x86_64 \
+            -o ../android/app/src/main/jniLibs \
+            build --release -p sync-core --features android-media
+
+      - name: Build preview APK
+        run: flutter build apk --debug
+
+      - name: Collect APK release assets
+        run: |
+          mkdir -p dist/android-preview
+          find build/app/outputs -type f -name "*.apk" -print -exec cp {} dist/android-preview/ \;
+          test -n "$(find dist/android-preview -type f -name '*.apk' -print -quit)"
+          ls -lah dist/android-preview
+
+      - name: Publish GitHub preview release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete "${PREVIEW_RELEASE_TAG}" --yes --cleanup-tag || true
+          gh release create "${PREVIEW_RELEASE_TAG}" \
+            dist/android-preview/*.apk \
+            --title "${PREVIEW_RELEASE_TITLE}" \
+            --notes "Preview APK built from ${GITHUB_SHA} by ${GITHUB_WORKFLOW} #${GITHUB_RUN_NUMBER}." \
+            --target "${GITHUB_SHA}" \
+            --prerelease
