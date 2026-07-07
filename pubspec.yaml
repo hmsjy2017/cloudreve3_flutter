@@ -81,7 +81,8 @@ dependencies:
 
   # 图标
   flutter_svg: ^2.0.9
-  lucide_icons: ^0.257.0
+  lucide_icons:
+    path: third_party/lucide_icons
 
   # 动画
   animations: ^2.0.11
