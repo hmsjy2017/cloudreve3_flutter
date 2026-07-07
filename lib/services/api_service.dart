@@ -5,6 +5,7 @@ import '../config/api_config.dart';
 import '../services/storage_service.dart';
 import '../core/exceptions/app_exception.dart';
 import '../core/utils/app_logger.dart';
+import 'cloudreve_v3_compat.dart';
 
 /// API响应
 class ApiResponse<T> {
@@ -44,6 +45,8 @@ class ApiService {
   bool _isRefreshing = false;
   final List<Completer<void>> _refreshSubscribers = [];
   bool _initialized = false;
+
+  bool get _isCloudreveV3 => CloudreveV3Compat.isV3BaseUrl(_dio.options.baseUrl);
 
   /// 获取 token 的回调
   Future<String?> Function()? getTokenCallback;
@@ -111,8 +114,8 @@ class ApiService {
 
   /// 动态设置 API baseUrl
   Future<void> setBaseUrl(String baseUrl) async {
-    _dio.options.baseUrl = baseUrl;
-    AppLogger.d('ApiService baseUrl 已更新为: $baseUrl');
+    _dio.options.baseUrl = baseUrl.trim().replaceAll(RegExp(r'/+$'), '');
+    AppLogger.d('ApiService baseUrl 已更新为: ${_dio.options.baseUrl}');
   }
 
   /// 请求拦截器
@@ -123,9 +126,17 @@ class ApiService {
         if (getTokenCallback != null) {
           final token = await getTokenCallback!();
           if (token != null && token.isNotEmpty) {
-            options.headers['Authorization'] = 'Bearer $token';
+            if (_isCloudreveV3) {
+              CloudreveV3Compat.applyAuthHeader(options, token);
+            } else {
+              options.headers['Authorization'] = 'Bearer $token';
+            }
           }
         }
+        if (_isCloudreveV3) {
+          CloudreveV3Compat.translateRequest(options);
+        }
+
         // 附加 X-Cr-Client-Id，服务端据此过滤 SSE 自身事件
         try {
           final clientId = await StorageService.instance.getOrCreateClientId();
@@ -143,6 +154,10 @@ class ApiService {
         AppLogger.d(
           'API Response: ${response.statusCode} - ${response.requestOptions.uri}',
         );
+
+        if (_isCloudreveV3) {
+          response.data = CloudreveV3Compat.translateResponse(response);
+        }
 
         // 检查 JSON 响应中的 code 字段
         if (response.data is Map<String, dynamic>) {
