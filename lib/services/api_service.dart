@@ -134,6 +134,10 @@ class ApiService {
           }
         }
         if (_isCloudreveV3) {
+          final synthetic = CloudreveV3Compat.syntheticResponse(options);
+          if (synthetic != null) {
+            return handler.resolve(synthetic);
+          }
           CloudreveV3Compat.translateRequest(options);
         }
 
