@@ -29,26 +29,36 @@ class UserModel {
   });
 
   factory UserModel.fromJson(Map<String, dynamic> json) {
+    final createdAtRaw = json['created_at'] ?? json['createdAt'];
+    final createdAt = createdAtRaw is String
+        ? DateTime.tryParse(createdAtRaw) ?? DateTime.now()
+        : DateTime.now();
+    final groupRaw = json['group'];
+    final pinedRaw = json['pined'];
+    final tokenRaw = json['token'];
+    final anonymousRaw = json['anonymous'];
+
     return UserModel(
-      id: json['id'] as String,
-      email: json['email'] as String?,
-      nickname: json['nickname'] as String,
-      avatar: json['avatar'] as String?,
-      createdAt: DateTime.parse(json['created_at'] as String),
-      preferredTheme: json['preferred_theme'] as String?,
-      language: json['language'] as String?,
-      anonymous: json['anonymous'] as bool?,
-      group: json['group'] != null
-          ? GroupModel.fromJson(json['group'] as Map<String, dynamic>)
-          : null,
-      pined: json['pined'] != null
-          ? (json['pined'] as List)
-                .map((e) => PinedFileModel.fromJson(e as Map<String, dynamic>))
+      id: json['id']?.toString() ?? '',
+      email: json['email']?.toString(),
+      nickname: json['nickname']?.toString() ??
+          json['user_name']?.toString() ??
+          json['username']?.toString() ??
+          json['email']?.toString() ??
+          '',
+      avatar: json['avatar']?.toString(),
+      createdAt: createdAt,
+      preferredTheme: json['preferred_theme']?.toString(),
+      language: json['language']?.toString(),
+      anonymous: anonymousRaw is bool ? anonymousRaw : null,
+      group: groupRaw is Map ? GroupModel.fromJson(Map<String, dynamic>.from(groupRaw)) : null,
+      pined: pinedRaw is List
+          ? pinedRaw
+                .whereType<Map>()
+                .map((e) => PinedFileModel.fromJson(Map<String, dynamic>.from(e)))
                 .toList()
           : null,
-      token: json['token'] != null
-          ? TokenModel.fromJson(json['token'] as Map<String, dynamic>)
-          : null,
+      token: tokenRaw is Map ? TokenModel.fromJson(Map<String, dynamic>.from(tokenRaw)) : null,
     );
   }
 
@@ -115,11 +125,11 @@ class GroupModel {
 
   factory GroupModel.fromJson(Map<String, dynamic> json) {
     return GroupModel(
-      id: json['id'] as String,
-      name: json['name'] as String,
-      permission: json['permission'] as String?,
-      directLinkBatchSize: json['direct_link_batch_size'] as int?,
-      trashRetention: json['trash_retention'] as int?,
+      id: json['id']?.toString() ?? '',
+      name: json['name']?.toString() ?? '',
+      permission: json['permission']?.toString(),
+      directLinkBatchSize: (json['direct_link_batch_size'] as num?)?.toInt(),
+      trashRetention: (json['trash_retention'] as num?)?.toInt(),
     );
   }
 
@@ -143,8 +153,8 @@ class PinedFileModel {
 
   factory PinedFileModel.fromJson(Map<String, dynamic> json) {
     return PinedFileModel(
-      uri: json['uri'] as String,
-      name: json['name'] as String?,
+      uri: json['uri']?.toString() ?? '',
+      name: json['name']?.toString(),
     );
   }
 
@@ -178,10 +188,10 @@ class TokenModel {
     }
 
     return TokenModel(
-      accessToken: data['access_token'] as String,
-      refreshToken: data['refresh_token'] as String,
-      accessExpires: DateTime.parse(data['access_expires'] as String),
-      refreshExpires: DateTime.parse(data['refresh_expires'] as String),
+      accessToken: data['access_token']?.toString() ?? '',
+      refreshToken: data['refresh_token']?.toString() ?? '',
+      accessExpires: DateTime.tryParse(data['access_expires']?.toString() ?? '') ?? DateTime.now(),
+      refreshExpires: DateTime.tryParse(data['refresh_expires']?.toString() ?? '') ?? DateTime.now(),
     );
   }
 
@@ -213,8 +223,8 @@ class CapacityModel {
 
   factory CapacityModel.fromJson(Map<String, dynamic> json) {
     return CapacityModel(
-      total: json['total'] as int,
-      used: json['used'] as int,
+      total: (json['total'] as num?)?.toInt() ?? 0,
+      used: (json['used'] as num?)?.toInt() ?? 0,
     );
   }
 
