@@ -59,9 +59,6 @@ class CloudreveV3Compat {
       return _syntheticWorkflow(options);
     }
 
-    if (path == '/user/setting/2fa' && method == 'GET') {
-      return _ok(options, '');
-    }
     if (path == '/user/setting' || path.startsWith('/user/setting/') || path == '/user/authn' || path == '/user/creditChanges') {
       if (method == 'GET') return _ok(options, path == '/user/creditChanges' ? <Map<String, dynamic>>[] : <String, dynamic>{});
       return _ok(options, null);
@@ -97,10 +94,8 @@ class CloudreveV3Compat {
       }
       options.path = '/user/session';
       final body = _body(options);
-      final userName = body['email'] ?? body['userName'] ?? body['username'];
-      options.extra['cloudreveV3LoginUserName'] = userName;
       options.data = {
-        'userName': userName,
+        'userName': body['email'] ?? body['userName'] ?? body['username'],
         'Password': body['password'] ?? body['Password'],
         if ((body['captcha']?.toString().isNotEmpty ?? false)) 'captchaCode': body['captcha'],
         if ((body['ticket']?.toString().isNotEmpty ?? false)) 'captchaTicket': body['ticket'],
@@ -122,26 +117,21 @@ class CloudreveV3Compat {
       // Same endpoint name in V3; response is normalized below.
     } else if (path == '/file' && method == 'GET') {
       final uri = options.queryParameters['uri']?.toString() ?? '/';
-      options.path = _directoryEndpoint(_uriToV3Path(uri));
+      options.path = '/directory/${Uri.encodeComponent(_uriToV3Path(uri))}';
       options.queryParameters = {
-        'page': _v3Page(options.queryParameters['page']),
+        if (options.queryParameters['page'] != null) 'page': options.queryParameters['page'],
         if (options.queryParameters['page_size'] != null) 'page_size': options.queryParameters['page_size'],
       };
     } else if (path == '/file/create') {
       final body = _body(options);
       if (body['type'] == 'folder') {
         final fullPath = _uriToV3Path(body['uri']?.toString() ?? '/');
-        options.extra['cloudreveV3CreatedPath'] = fullPath;
-        options.extra['cloudreveV3CreatedType'] = 1;
         options.path = '/directory';
         options.method = 'PUT';
-        options.data = {'path': fullPath};
+        options.data = {'path': _parentOf(fullPath), 'name': _nameOf(fullPath)};
       } else {
-        final fullPath = _uriToV3Path(body['uri']?.toString() ?? '/');
-        options.extra['cloudreveV3CreatedPath'] = fullPath;
-        options.extra['cloudreveV3CreatedType'] = 0;
         options.path = '/file/create';
-        options.data = {'path': fullPath};
+        options.data = {'path': _uriToV3Path(body['uri']?.toString() ?? '/')};
       }
     } else if (path == '/file' && method == 'DELETE') {
       final paths = _bodyUris(options).map(_uriToV3Path).toList();
@@ -182,30 +172,14 @@ class CloudreveV3Compat {
     } else if (path == '/file/upload') {
       if (method == 'PUT') {
         final body = _body(options);
-        final fullPath = _uriToV3Path(body['uri']?.toString() ?? '/');
-        options.extra['cloudreveV3UploadPath'] = fullPath;
-        options.data = {
-          'path': _parentOf(fullPath),
-          'name': _nameOf(fullPath),
-          'size': body['size'] ?? 0,
-          'policy_id': body['policy_id'] ?? body['policyId'] ?? '',
-          'last_modified': body['last_modified'] ?? body['lastModified'] ?? DateTime.now().millisecondsSinceEpoch,
-          'mime_type': body['mime_type'] ?? body['mimeType'] ?? '',
-        };
+        options.data = {'path': _uriToV3Path(body['uri']?.toString() ?? '/'), 'size': body['size'] ?? 0};
       } else if (method == 'DELETE') {
         options.extra['cloudreveV3ForceOk'] = true;
       }
     } else if (path.startsWith('/file/upload/')) {
       // V3 and V4 both use chunk upload paths. Keep as-is.
     } else if (path == '/share') {
-      if (method == 'GET') {
-        options.queryParameters = {
-          ...options.queryParameters,
-          'page': _v3Page(options.queryParameters['page']),
-        };
-      } else {
-        options.data = _translateShareBody(options.data);
-      }
+      options.data = _translateShareBody(options.data);
     } else if (path.startsWith('/share/info/')) {
       // Same public info path in V3-like clients; response normalized below.
     } else if (RegExp(r'^/share/[^/]+$').hasMatch(path)) {
@@ -228,18 +202,9 @@ class CloudreveV3Compat {
     final path = response.requestOptions.path;
 
     if (path == '/user/session') {
-      final rawData = map['data'];
       final cookie = _sessionCookie(response);
-      final token = cookie.isNotEmpty ? cookie : rawData is String ? rawData : '';
-      final fallbackUserName = response.requestOptions.extra['cloudreveV3LoginUserName']?.toString() ?? '';
-      final user = rawData is Map
-          ? Map<String, dynamic>.from(rawData)
-          : <String, dynamic>{
-              'id': fallbackUserName,
-              'email': fallbackUserName,
-              'nickname': fallbackUserName.isEmpty ? 'Cloudreve V3 用户' : fallbackUserName,
-            };
-      map['data'] = {'user': _normalizeUser(user), 'token': _token(token)};
+      final user = Map<String, dynamic>.from(map['data'] as Map? ?? const {});
+      map['data'] = {'user': _normalizeUser(user), 'token': _token(cookie)};
     } else if (path == '/user' && response.requestOptions.extra['cloudreveV3RefreshToken'] != null) {
       final cookie = response.requestOptions.extra['cloudreveV3RefreshToken']?.toString() ?? '';
       map['data'] = _token(cookie.replaceFirst(RegExp(r'^cloudreve-session='), ''));
@@ -255,8 +220,6 @@ class CloudreveV3Compat {
       map['data'] = {'image': raw['image'] ?? raw['captcha'] ?? raw['src'] ?? '', 'ticket': raw['ticket'] ?? raw['captchaID'] ?? raw['id'] ?? ''};
     } else if (path.startsWith('/directory/')) {
       map['data'] = _normalizeDirectory(map['data']);
-    } else if (path == '/directory' || path == '/file/create') {
-      map['data'] = _normalizeCreatedObject(response, map['data']);
     } else if (path.startsWith('/object/property/')) {
       map['data'] = _normalizeObject(map['data']);
     } else if (path == '/file/download') {
@@ -264,7 +227,7 @@ class CloudreveV3Compat {
     } else if (path == '/file/upload' && response.requestOptions.method.toUpperCase() == 'PUT') {
       map['data'] = _normalizeUploadSession(map['data']);
     } else if (path == '/share' || path.startsWith('/share/')) {
-      map['data'] = _normalizeSharePayload(map['data'], listResponse: path == '/share' && response.requestOptions.method.toUpperCase() == 'GET');
+      map['data'] = _normalizeSharePayload(map['data']);
     } else if (path == '/user/search') {
       final raw = map['data'];
       final users = raw is List ? raw : (raw is Map ? (raw['users'] as List? ?? const []) : const []);
@@ -277,7 +240,7 @@ class CloudreveV3Compat {
   static Response<dynamic> _syntheticWorkflow(RequestOptions options) {
     final path = options.path;
     final method = options.method.toUpperCase();
-    if (method == 'POST') return _ok(options, <Map<String, dynamic>>[]);
+    if (method == 'POST') return _ok(options, {'id': '', 'task_id': ''});
     if (path.startsWith('/workflow/progress/')) return _ok(options, {'status': 'completed', 'progress': 1.0});
     if (method == 'GET') return _ok(options, {'tasks': <Map<String, dynamic>>[], 'pagination': {'total_items': 0}});
     return _ok(options, null);
@@ -312,25 +275,15 @@ class CloudreveV3Compat {
         'refresh_expires': DateTime.now().add(const Duration(days: 30)).toIso8601String(),
       };
 
-  static Map<String, dynamic> _normalizeUser(Map<String, dynamic> user) {
-    final group = user['group'] is Map
-        ? Map<String, dynamic>.from(user['group'] as Map)
-        : {'id': user['group_id'] ?? '0', 'name': user['group_name'] ?? 'default'};
-
-    return {
-      ...user,
-      'id': user['id']?.toString() ?? user['uid']?.toString() ?? '',
-      'email': user['email']?.toString() ?? user['user_name']?.toString() ?? user['username']?.toString() ?? user['nickname']?.toString() ?? '',
-      'nickname': user['nickname']?.toString() ?? user['user_name']?.toString() ?? user['username']?.toString() ?? user['email']?.toString() ?? '',
-      'avatar': user['avatar']?.toString() ?? '',
-      'created_at': user['created_at'] ?? user['createdAt'] ?? DateTime.now().toIso8601String(),
-      'group': {
-        ...group,
-        'id': group['id']?.toString() ?? '0',
-        'name': group['name']?.toString() ?? 'default',
-      },
-    };
-  }
+  static Map<String, dynamic> _normalizeUser(Map<String, dynamic> user) => {
+        ...user,
+        'id': user['id']?.toString() ?? user['uid']?.toString() ?? '',
+        'email': user['email'] ?? user['user_name'] ?? user['username'] ?? user['nickname'] ?? '',
+        'nickname': user['nickname'] ?? user['user_name'] ?? user['username'] ?? user['email'] ?? '',
+        'avatar': user['avatar'] ?? '',
+        'created_at': user['created_at'] ?? user['createdAt'] ?? DateTime.now().toIso8601String(),
+        'group': user['group'] ?? {'id': '0', 'name': user['group_name'] ?? 'default'},
+      };
 
   static Map<String, dynamic> _normalizeSiteConfig(Map<String, dynamic> cfg) => {
         ...cfg,
@@ -396,25 +349,11 @@ class CloudreveV3Compat {
     };
   }
 
-  static dynamic _normalizeSharePayload(dynamic raw, {bool listResponse = false}) {
-    final list = raw is List
-        ? raw
-        : raw is Map
-            ? ((raw['shares'] as List?) ?? (raw['items'] as List?) ?? (raw['objects'] as List?))
-            : null;
-
-    if (listResponse) {
-      final shares = (list ?? const []).map(_normalizeShare).toList();
-      return {
-        if (raw is Map) ...raw,
-        'shares': shares,
-        'pagination': raw is Map && raw['pagination'] is Map
-            ? raw['pagination']
-            : {'total_items': shares.length},
-      };
+  static dynamic _normalizeSharePayload(dynamic raw) {
+    if (raw is List) return raw.map(_normalizeShare).toList();
+    if (raw is Map && raw['shares'] is List) {
+      return {...raw, 'shares': (raw['shares'] as List).map(_normalizeShare).toList()};
     }
-
-    if (list != null) return list.map(_normalizeShare).toList();
     if (raw is Map) return _normalizeShare(raw);
     return raw;
   }
@@ -436,34 +375,6 @@ class CloudreveV3Compat {
       ...body,
       if (body['uri'] != null) 'path': _uriToV3Path(body['uri'].toString()),
       if (body['uris'] is List) 'items': (body['uris'] as List).map((e) => _uriToV3Path(e.toString())).toList(),
-    };
-  }
-
-  static int _v3Page(dynamic value) {
-    final parsed = value is num ? value.toInt() : int.tryParse(value?.toString() ?? '');
-    if (parsed == null || parsed < 1) return 1;
-    return parsed;
-  }
-
-  static String _directoryEndpoint(String path) {
-    return '/directory${Uri.encodeComponent(path)}';
-  }
-
-  static Map<String, dynamic> _normalizeCreatedObject(Response<dynamic> response, dynamic raw) {
-    if (raw is Map && raw.isNotEmpty) return _normalizeObject(raw);
-
-    final path = response.requestOptions.extra['cloudreveV3CreatedPath']?.toString() ?? '/';
-    final type = response.requestOptions.extra['cloudreveV3CreatedType'] as int? ?? 1;
-    final now = DateTime.now().toIso8601String();
-    return {
-      'id': path,
-      'name': _nameOf(path),
-      'path': path,
-      'uri': FileUtils.toCloudreveUri(path),
-      'type': type,
-      'size': 0,
-      'created_at': now,
-      'updated_at': now,
     };
   }
 

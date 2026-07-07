@@ -114,7 +114,7 @@ class ApiService {
 
   /// 动态设置 API baseUrl
   Future<void> setBaseUrl(String baseUrl) async {
-    _dio.options.baseUrl = CloudreveV3Compat.normalizeBaseUrl(baseUrl);
+    _dio.options.baseUrl = baseUrl.trim().replaceAll(RegExp(r'/+$'), '');
     AppLogger.d('ApiService baseUrl 已更新为: ${_dio.options.baseUrl}');
   }
 
