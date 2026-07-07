@@ -22,9 +22,15 @@ class RemoteDownloadService {
 
     AppLogger.i("RemoteDownloadService --> $response");
 
-    List<RemoteDownloadTaskModel> result = response.map<RemoteDownloadTaskModel>((item) =>
-      RemoteDownloadTaskModel.fromJson(item as Map<String, dynamic>)
-    ).toList();
+    final responseList = response is List
+        ? response
+        : response is Map && response['tasks'] is List
+            ? response['tasks'] as List
+            : const <dynamic>[];
+    final result = responseList
+        .whereType<Map>()
+        .map((item) => RemoteDownloadTaskModel.fromJson(Map<String, dynamic>.from(item)))
+        .toList();
 
     return result;
   }

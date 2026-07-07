@@ -286,7 +286,11 @@ class LoginResponseModel {
     }
 
     final Map<String, dynamic> userData = data ?? json;
-    final userJson = userData['user'] as Map<String, dynamic>;
+    final userRaw = userData['user'];
+    if (userRaw is! Map) {
+      throw Exception(msg ?? '登录响应缺少用户信息');
+    }
+    final userJson = Map<String, dynamic>.from(userRaw);
 
     // 将 token 合并到 user 中
     userJson['token'] = userData['token'];
