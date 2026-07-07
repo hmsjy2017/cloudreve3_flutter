@@ -32,7 +32,7 @@ if (keystorePropertiesFile.exists()) {
 
 android {
     namespace = "com.limo.cloudreve4_flutter"
-    compileSdk = getLocalProperty("flutter.compileSdkVersion", 34)
+    compileSdk = getLocalProperty("flutter.compileSdkVersion", 36)
     ndkVersion = flutter.ndkVersion
 
     // 2. 配置签名选项
