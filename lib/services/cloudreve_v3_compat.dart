@@ -94,10 +94,8 @@ class CloudreveV3Compat {
       }
       options.path = '/user/session';
       final body = _body(options);
-      final userName = body['email'] ?? body['userName'] ?? body['username'];
-      options.extra['cloudreveV3LoginUserName'] = userName;
       options.data = {
-        'userName': userName,
+        'userName': body['email'] ?? body['userName'] ?? body['username'],
         'Password': body['password'] ?? body['Password'],
         if ((body['captcha']?.toString().isNotEmpty ?? false)) 'captchaCode': body['captcha'],
         if ((body['ticket']?.toString().isNotEmpty ?? false)) 'captchaTicket': body['ticket'],
@@ -204,18 +202,9 @@ class CloudreveV3Compat {
     final path = response.requestOptions.path;
 
     if (path == '/user/session') {
-      final rawData = map['data'];
       final cookie = _sessionCookie(response);
-      final token = cookie.isNotEmpty ? cookie : rawData is String ? rawData : '';
-      final fallbackUserName = response.requestOptions.extra['cloudreveV3LoginUserName']?.toString() ?? '';
-      final user = rawData is Map
-          ? Map<String, dynamic>.from(rawData)
-          : <String, dynamic>{
-              'id': fallbackUserName,
-              'email': fallbackUserName,
-              'nickname': fallbackUserName.isEmpty ? 'Cloudreve V3 用户' : fallbackUserName,
-            };
-      map['data'] = {'user': _normalizeUser(user), 'token': _token(token)};
+      final user = Map<String, dynamic>.from(map['data'] as Map? ?? const {});
+      map['data'] = {'user': _normalizeUser(user), 'token': _token(cookie)};
     } else if (path == '/user' && response.requestOptions.extra['cloudreveV3RefreshToken'] != null) {
       final cookie = response.requestOptions.extra['cloudreveV3RefreshToken']?.toString() ?? '';
       map['data'] = _token(cookie.replaceFirst(RegExp(r'^cloudreve-session='), ''));
@@ -286,25 +275,15 @@ class CloudreveV3Compat {
         'refresh_expires': DateTime.now().add(const Duration(days: 30)).toIso8601String(),
       };
 
-  static Map<String, dynamic> _normalizeUser(Map<String, dynamic> user) {
-    final group = user['group'] is Map
-        ? Map<String, dynamic>.from(user['group'] as Map)
-        : {'id': user['group_id'] ?? '0', 'name': user['group_name'] ?? 'default'};
-
-    return {
-      ...user,
-      'id': user['id']?.toString() ?? user['uid']?.toString() ?? '',
-      'email': user['email']?.toString() ?? user['user_name']?.toString() ?? user['username']?.toString() ?? user['nickname']?.toString() ?? '',
-      'nickname': user['nickname']?.toString() ?? user['user_name']?.toString() ?? user['username']?.toString() ?? user['email']?.toString() ?? '',
-      'avatar': user['avatar']?.toString() ?? '',
-      'created_at': user['created_at'] ?? user['createdAt'] ?? DateTime.now().toIso8601String(),
-      'group': {
-        ...group,
-        'id': group['id']?.toString() ?? '0',
-        'name': group['name']?.toString() ?? 'default',
-      },
-    };
-  }
+  static Map<String, dynamic> _normalizeUser(Map<String, dynamic> user) => {
+        ...user,
+        'id': user['id']?.toString() ?? user['uid']?.toString() ?? '',
+        'email': user['email'] ?? user['user_name'] ?? user['username'] ?? user['nickname'] ?? '',
+        'nickname': user['nickname'] ?? user['user_name'] ?? user['username'] ?? user['email'] ?? '',
+        'avatar': user['avatar'] ?? '',
+        'created_at': user['created_at'] ?? user['createdAt'] ?? DateTime.now().toIso8601String(),
+        'group': user['group'] ?? {'id': '0', 'name': user['group_name'] ?? 'default'},
+      };
 
   static Map<String, dynamic> _normalizeSiteConfig(Map<String, dynamic> cfg) => {
         ...cfg,
