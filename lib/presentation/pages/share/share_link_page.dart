@@ -544,7 +544,8 @@ class _ShareLinkPageState extends State<ShareLinkPage> {
       return rawFetch.apply(this, arguments).then(function (resp) {
         try {
           var respUrl = String(resp && resp.url ? resp.url : reqUrl);
-          if (respUrl.indexOf('/api/v4/file/url') >= 0 || reqUrl.indexOf('/api/v4/file/url') >= 0) {
+          if (respUrl.indexOf('/api/v4/file/url') >= 0 || reqUrl.indexOf('/api/v4/file/url') >= 0 ||
+              respUrl.indexOf('/api/v3/file/download') >= 0 || reqUrl.indexOf('/api/v3/file/download') >= 0) {
             resp.clone().text().then(inspectText).catch(function () {});
           }
         } catch (e) {}
@@ -566,7 +567,7 @@ class _ShareLinkPageState extends State<ShareLinkPage> {
         this.addEventListener('load', function () {
           try {
             var url = String(this.responseURL || this.__cloudreveRequestUrl || '');
-            if (url.indexOf('/api/v4/file/url') >= 0) {
+            if (url.indexOf('/api/v4/file/url') >= 0 || url.indexOf('/api/v3/file/download') >= 0) {
               inspectText(String(this.responseText || ''));
             }
           } catch (e) {}
@@ -756,8 +757,8 @@ class _ShareLinkPageState extends State<ShareLinkPage> {
       if (path.startsWith('/s/') || path == '/home' || path.startsWith('/home/')) {
         return false;
       }
-      if (path.contains('/api/v4/file/url')) return false;
-      if (path.contains('/api/v4/share/info')) return false;
+      if (path.contains('/api/v4/file/url') || path.contains('/api/v3/file/download')) return false;
+      if (path.contains('/api/v4/share/info') || path.contains('/api/v3/share/info')) return false;
     }
 
     final url = uri.toString().toLowerCase();
@@ -765,6 +766,8 @@ class _ShareLinkPageState extends State<ShareLinkPage> {
         path.contains('/download') ||
         path.contains('/api/v4/file/download') ||
         path.contains('/api/v4/file/source') ||
+        path.contains('/api/v3/file/download') ||
+        path.contains('/api/v3/file/source') ||
         url.contains('response-content-disposition') ||
         url.contains('x-amz-signature') ||
         url.contains('x-oss-signature') ||

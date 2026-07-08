@@ -12,7 +12,13 @@ import '../core/utils/file_utils.dart';
 class CloudreveV3Compat {
   const CloudreveV3Compat._();
 
-  static bool isV3BaseUrl(String baseUrl) => Uri.tryParse(baseUrl)?.path.contains('/api/v3') ?? false;
+  static bool isV3BaseUrl(String baseUrl) {
+    final uri = Uri.tryParse(baseUrl.trim());
+    if (uri == null) return false;
+    return uri.pathSegments.length >= 2 &&
+        uri.pathSegments[uri.pathSegments.length - 2] == 'api' &&
+        uri.pathSegments.last.toLowerCase() == 'v3';
+  }
 
   static String normalizeBaseUrl(String input) {
     final trimmed = input.trim().replaceAll(RegExp(r'/+$'), '');
@@ -117,11 +123,22 @@ class CloudreveV3Compat {
       // Same endpoint name in V3; response is normalized below.
     } else if (path == '/file' && method == 'GET') {
       final uri = options.queryParameters['uri']?.toString() ?? '/';
-      options.path = '/directory/${Uri.encodeComponent(_uriToV3Path(uri))}';
-      options.queryParameters = {
-        if (options.queryParameters['page'] != null) 'page': options.queryParameters['page'],
-        if (options.queryParameters['page_size'] != null) 'page_size': options.queryParameters['page_size'],
-      };
+      final query = _cloudreveUriQuery(uri);
+      final searchName = query['name']?.trim();
+      if (searchName != null && searchName.isNotEmpty) {
+        options.path = '/file/search/${Uri.encodeComponent(searchName)}';
+        options.queryParameters = {
+          if (options.queryParameters['page'] != null) 'page': options.queryParameters['page'],
+          if (options.queryParameters['page_size'] != null) 'page_size': options.queryParameters['page_size'],
+          'path': _uriToV3Path(uri),
+        };
+      } else {
+        options.path = '/directory/${Uri.encodeComponent(_uriToV3Path(uri))}';
+        options.queryParameters = {
+          if (options.queryParameters['page'] != null) 'page': options.queryParameters['page'],
+          if (options.queryParameters['page_size'] != null) 'page_size': options.queryParameters['page_size'],
+        };
+      }
     } else if (path == '/file/create') {
       final body = _body(options);
       if (body['type'] == 'folder') {
@@ -218,12 +235,14 @@ class CloudreveV3Compat {
     } else if (path == '/site/captcha') {
       final raw = Map<String, dynamic>.from(map['data'] as Map? ?? const {});
       map['data'] = {'image': raw['image'] ?? raw['captcha'] ?? raw['src'] ?? '', 'ticket': raw['ticket'] ?? raw['captchaID'] ?? raw['id'] ?? ''};
-    } else if (path.startsWith('/directory/')) {
+    } else if (path.startsWith('/directory/') || path.startsWith('/file/search/')) {
       map['data'] = _normalizeDirectory(map['data']);
     } else if (path.startsWith('/object/property/')) {
       map['data'] = _normalizeObject(map['data']);
     } else if (path == '/file/download') {
       map['data'] = _normalizeDownloadUrls(map['data']);
+    } else if (path == '/file/source') {
+      map['data'] = _normalizeDirectLinks(map['data']);
     } else if (path == '/file/upload' && response.requestOptions.method.toUpperCase() == 'PUT') {
       map['data'] = _normalizeUploadSession(map['data']);
     } else if (path == '/share' || path.startsWith('/share/')) {
@@ -332,6 +351,25 @@ class CloudreveV3Compat {
     return {'urls': urls.map((e) => e is Map ? {'url': e['url']?.toString() ?? ''} : {'url': e?.toString() ?? ''}).toList()};
   }
 
+  static List<Map<String, dynamic>> _normalizeDirectLinks(dynamic raw) {
+    final links = raw is List
+        ? raw
+        : raw is Map && raw['links'] is List
+            ? raw['links'] as List
+            : raw is Map && raw['urls'] is List
+                ? raw['urls'] as List
+                : raw == null
+                    ? const []
+                    : [raw];
+    return links.map((e) {
+      final item = e is Map ? Map<String, dynamic>.from(e) : <String, dynamic>{'url': e?.toString() ?? ''};
+      return {
+        ...item,
+        'url': item['url']?.toString() ?? item['src']?.toString() ?? item['source']?.toString() ?? '',
+      };
+    }).toList();
+  }
+
   static Map<String, dynamic> _normalizeUploadSession(dynamic raw) {
     final payload = Map<String, dynamic>.from(raw as Map? ?? const {});
     final policy = Map<String, dynamic>.from((payload['policy'] as Map?) ?? (payload['storage_policy'] as Map?) ?? const {});
@@ -379,11 +417,17 @@ class CloudreveV3Compat {
   }
 
   static String _uriToV3Path(String uri) {
-    var path = FileUtils.toCloudreveUri(uri);
+    var path = FileUtils.toCloudreveUri(uri).split('?').first;
     path = path.replaceFirst(RegExp(r'^cloudreve://my'), '');
     path = path.replaceFirst(RegExp(r'^cloudreve://trash'), '/');
     if (path.isEmpty) return '/';
     return path.startsWith('/') ? path : '/$path';
+  }
+
+  static Map<String, String> _cloudreveUriQuery(String uri) {
+    final idx = uri.indexOf('?');
+    if (idx < 0 || idx == uri.length - 1) return const {};
+    return Uri.splitQueryString(uri.substring(idx + 1));
   }
 
   static String _parentOf(String path) {
