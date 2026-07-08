@@ -31,18 +31,28 @@ class FileModel {
   });
 
   factory FileModel.fromJson(Map<String, dynamic> json) {
+    final typeRaw = json['type'];
+    final createdAtRaw = json['created_at'] ?? json['createdAt'] ?? json['date'];
+    final updatedAtRaw = json['updated_at'] ?? json['updatedAt'] ?? json['date'];
+    final metadataRaw = json['metadata'];
+    final path = json['path']?.toString() ?? json['uri']?.toString() ?? '';
+    final pathParts = path.split('/').where((e) => e.isNotEmpty).toList();
+    final fallbackName = pathParts.isEmpty ? '' : pathParts.last;
+
     return FileModel(
-      type: json['type'] as int,
-      id: json['id'] as String,
-      name: json['name'] as String,
-      createdAt: DateTime.parse(json['created_at'] as String),
-      updatedAt: DateTime.parse(json['updated_at'] as String),
+      type: typeRaw is num
+          ? typeRaw.toInt()
+          : (typeRaw == 'dir' || typeRaw == 'folder' ? 1 : 0),
+      id: json['id']?.toString() ?? path,
+      name: json['name']?.toString() ?? fallbackName,
+      createdAt: DateTime.tryParse(createdAtRaw?.toString() ?? '') ?? DateTime.now(),
+      updatedAt: DateTime.tryParse(updatedAtRaw?.toString() ?? '') ?? DateTime.now(),
       size: (json['size'] as num?)?.toInt() ?? 0,
-      path: json['path'] as String,
-      metadata: json['metadata'] as Map<String, dynamic>?,
-      permission: json['permission'] as String?,
-      primaryEntity: json['primary_entity'] as String?,
-      capability: json['capability'] as String?,
+      path: path,
+      metadata: metadataRaw is Map ? Map<String, dynamic>.from(metadataRaw) : null,
+      permission: json['permission']?.toString(),
+      primaryEntity: json['primary_entity']?.toString(),
+      capability: json['capability']?.toString(),
       owned: json['owned'] as bool?,
     );
   }
@@ -133,8 +143,8 @@ class FolderSummaryModel {
       size: (json['size'] as num?)?.toInt() ?? 0,
       files: (json['files'] as num?)?.toInt() ?? 0,
       folders: (json['folders'] as num?)?.toInt() ?? 0,
-      completed: json['completed'] as bool,
-      calculatedAt: DateTime.parse(json['calculated_at'] as String),
+      completed: json['completed'] as bool? ?? false,
+      calculatedAt: DateTime.tryParse(json['calculated_at']?.toString() ?? '') ?? DateTime.now(),
     );
   }
 
